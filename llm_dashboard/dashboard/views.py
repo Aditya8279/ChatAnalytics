@@ -208,6 +208,36 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
+def inject_plot_formatting(code: str, height: int = 300) -> str:
+    """
+    Inject layout and HTML rendering into Plotly figure code.
+
+    Parameters:
+    - code (str): Python code string containing the Plotly figure.
+    - height (int): Desired plot height.
+
+    Returns:
+    - str: Modified Python code with layout and HTML export.
+    """
+    lines = code.strip().splitlines()
+    modified_lines = []
+
+    fig_assigned = False
+    for line in lines:
+        modified_lines.append(line)
+        if not fig_assigned and line.strip().startswith("fig = "):
+            # Insert formatting after first fig assignment
+            modified_lines.append(
+                f"fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), height={height})"
+            )
+            modified_lines.append(
+                'plot_html = fig.to_html(full_html=False, include_plotlyjs=False, config={"displayModeBar": False})'
+            )
+            fig_assigned = True
+
+    return "\n".join(modified_lines)
+
+
 def dashboard_view(request):
     context = {}
 
@@ -335,18 +365,12 @@ def dashboard_view(request):
                         viz_code_response = generate_plot_code(retry_summary_prompt)
                         logging.info(f"=== MODEL 3 Dashboard Plot Code (Q{i+1}, Attempt {attempt+1}) ===\n{viz_code_response}\n\n")
                         viz_code_response = extract_json_from_response(viz_code_response)
-
-                        local_vars["plt"] = plt
-                        buf = io.BytesIO()
+                        viz_code_response = inject_plot_formatting(viz_code_response, height=280)
                         exec(viz_code_response, {}, local_vars)
-                        plt.savefig(buf, format="png")
-                        # buf.seek(0)
-                        # plot_image = Image.open(buf)
-                        plt.close()
 
-                        buf.seek(0)
-                        encoded_img = base64.b64encode(buf.read()).decode('utf-8')
-                        plot_paths.append(encoded_img)
+                        # Extract HTML from variable (assume model always uses `plot_html`)
+                        plot_html = local_vars.get("plot_html", "")
+                        plot_paths.append(plot_html)
                         # viz_code_response = query_llm(retry_summary_prompt, MODEL_3_SYSTEM_PROMPT)
                     else:
                         viz_code_response = generate_title(sub_q)

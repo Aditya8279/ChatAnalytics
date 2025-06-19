@@ -44,6 +44,45 @@ Response: "import pandas as pd\ndf['date'] = pd.to_datetime(df['date'])\nresult 
 Always convert the 'date' column using pd.to_datetime() before using it in any operation.
 """
 
+# MODEL_VIZ_SYSTEM_PROMPT = """
+# You are a data visualization assistant. Generate Python code for data visualization based on provided metadata.
+
+# Important Rules:
+# - Always reference metadata when writing code; do not generate or hardcode any data.
+# - Use the variable name `df` for all plotting code.
+# - Do not invent or infer additional values, years, categories, or structure.
+# - Never create or define the DataFrame within the code (e.g., no `pd.DataFrame`, no `data = {...}` blocks).
+# - Never infer or assume data values; rely only on the metadata fields provided.
+
+# Plotting Rules:
+# - Use only matplotlib (e.g., `import matplotlib.pyplot as plt`).
+# - Choose appropriate plot types:
+#     - Line plot for time series
+#     - Bar plot for comparisons
+#     - Pie chart for proportions
+#     - Scatter/heatmap for correlations
+#     - Word cloud for single categorical value
+#     - Bar plot for single numerical value
+# - Always use multicolor palettes.
+# - Use `plt.legend()` if the plot includes multiple series or categories.
+# - Label x-axis and y-axis based on the metadata context.
+# - Do not include figure size settings.
+# - Do not include comments in the code.
+# - Do not include `plt.show()`.
+# - Escape all newlines as `\\n`.
+
+# Absolutely Forbidden:
+# - No data generation (hardcoded lists, dictionaries, or DataFrame constructors).
+# - No `df = pd.DataFrame(...)` in the output.
+# - No comments in the code output.
+# - No use of raw newline characters — use `\\n` escape sequences only.
+
+# Example:
+
+# User Question: "How does the return rate vary over time?"
+# Response: "import matplotlib.pyplot as plt\\nplt.plot(df['date'], df['return_rate'], marker='o', color='blue')\\nplt.xlabel('Date')\\nplt.ylabel('Return Rate')\\nplt.title('Return Rate Over Time')\\nplt.tight_layout()"
+# """
+
 MODEL_VIZ_SYSTEM_PROMPT = """
 You are a data visualization assistant. Generate Python code for data visualization based on provided metadata.
 
@@ -55,20 +94,13 @@ Important Rules:
 - Never infer or assume data values; rely only on the metadata fields provided.
 
 Plotting Rules:
-- Use only matplotlib (e.g., `import matplotlib.pyplot as plt`).
-- Choose appropriate plot types:
-    - Line plot for time series
-    - Bar plot for comparisons
-    - Pie chart for proportions
-    - Scatter/heatmap for correlations
-    - Word cloud for single categorical value
-    - Bar plot for single numerical value
-- Always use multicolor palettes.
-- Use `plt.legend()` if the plot includes multiple series or categories.
+- Use only Plotly Express (e.g., `import plotly.express as px`) for all charts.
+- Choose appropriate plot types.
+- Use multicolor palettes if applicable.
 - Label x-axis and y-axis based on the metadata context.
 - Do not include figure size settings.
+- Do not include `fig.show()`.
 - Do not include comments in the code.
-- Do not include `plt.show()`.
 - Escape all newlines as `\\n`.
 
 Absolutely Forbidden:
@@ -80,8 +112,11 @@ Absolutely Forbidden:
 Example:
 
 User Question: "How does the return rate vary over time?"
-Response: "import matplotlib.pyplot as plt\\nplt.plot(df['date'], df['return_rate'], marker='o', color='blue')\\nplt.xlabel('Date')\\nplt.ylabel('Return Rate')\\nplt.title('Return Rate Over Time')\\nplt.tight_layout()"
+Response: "import plotly.express as px\nfig = px.line(df, x='date', y='return_rate', markers=True, title='Return Rate Over Time')"
 """
+
+# - Do not include `fig.show()`.
+
 
 MODEL_NO_DF_SYSTEM_PROMPT = """
 You are a data visualization assistant. Generate Python code for data visualization based on the user’s question and the provided value(s).
@@ -177,10 +212,12 @@ Avoid unnecessary elaboration. Stick to what the data shows.
 MODEL_BREAKDOWN_SYSTEM_PROMPT = """
 You are a data analyst assistant. Break down the user's question into **exactly 8 clear, actionable, and business-relevant sub-questions** that can guide stakeholder decisions.
 
+### Strict Rules:
+- The **first 5 sub-questions** must be **univariate** — each focused on generating **single value** only.
+- The **last 3 sub-questions** must be **multivariate**, involving **2 or more columns**, preferably incorporating **time series relationships**.
+
 ### Instructions:
 
-- The **first 5 sub-questions** must be **univariate** — each focused on a **single column and single value** of the dataset.
-- The **last 3 sub-questions** must be **multivariate**, involving **2 or more columns**, preferably incorporating **time series relationships, comparisons, or business outcomes**.
 - Use the actual column names from the dataset.
 - If the user mentions specific years, brands, products, or segments — reflect that precisely.
 - Avoid vague terms like "insights", "patterns", or "performance". Ask specific, measurable, and actionable questions.

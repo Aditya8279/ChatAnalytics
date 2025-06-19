@@ -1,82 +1,10 @@
-{% comment %} <!DOCTYPE html>
-<html>
-<head>
-  <title>LLM Dashboard</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss/dist/tailwind.min.css">
-</head>
-<body class="flex h-screen">
-
-  <!-- Sidebar -->
-  <div class="w-1/4 bg-gray-800 text-white p-4 flex flex-col">
-    <h2 class="text-xl font-bold mb-4">Data Assistant</h2>
-
-    <form method="POST" enctype="multipart/form-data">
-      {% csrf_token %}
-      <label class="block mb-2">Upload CSV</label>
-      <input type="file" name="csv_file" class="mb-4 w-full p-1 text-black"/>
-
-      <label class="block mb-2">Enter your question</label>
-      <textarea name="user_query" class="w-full h-24 text-black p-1 mb-4" required></textarea>
-
-      <button type="submit" class="bg-blue-500 px-4 py-2 rounded hover:bg-blue-600">Submit</button>
-    </form>
-
-    <hr class="my-4"/>
-
-    <div>
-      <h3 class="text-lg font-semibold mb-2">Previous Questions</h3>
-      <ul>
-        {% for q in past_questions %}
-          <li class="text-sm">{{ q }}</li>
-        {% endfor %}
-      </ul>
-    </div>
-  </div>
-
-  <!-- Main Dashboard Content -->
-  <div class="w-3/4 p-6 overflow-y-scroll bg-gray-100">
-    <h1 class="text-2xl font-bold mb-6">Dashboard Results</h1>
-
-    {% for question, plot_image, table in results %}
-      <div class="mb-6 bg-white p-4 rounded shadow">
-        <h3 class="text-xl font-semibold mb-2">Q{{ forloop.counter }}: {{ question }}</h3>
-
-        {% if plot_image %}
-          <img src="data:image/png;base64,{{ plot_image }}" class="mb-4 w-full rounded"/>
-        {% endif %}
-
-        {% if table %}
-          <table class="table-auto w-full text-sm">
-            <thead>
-              <tr>
-                {% for col in table.0 %}
-                  <th class="border px-2 py-1 font-semibold">{{ col }}</th>
-                {% endfor %}
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in table|slice:"1:6" %}
-                <tr>
-                  {% for cell in row %}
-                    <td class="border px-2 py-1">{{ cell }}</td>
-                  {% endfor %}
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        {% endif %}
-      </div>
-    {% endfor %}
-  </div>
-
-</body>
-</html> {% endcomment %}
-
 <!DOCTYPE html>
 <html>
 <head>
   <title>LLM Dashboard</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+  <!-- Load Plotly.js once globally (to avoid duplication) -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 </head>
 <body class="flex h-screen bg-gray-100">
 
@@ -99,7 +27,7 @@
 
     <div>
       <h3 class="text-lg font-semibold mb-2">Previous Questions</h3>
-      <ul>
+      <ul class="space-y-1">
         {% for q in past_questions %}
           <li class="text-sm">{{ q }}</li>
         {% endfor %}
@@ -110,32 +38,55 @@
   <!-- Main Dashboard Content -->
   <div class="w-3/4 p-6 overflow-y-scroll">
 
-    <!-- Top Tiles Section -->
-    <div class="grid grid-cols-5 gap-4 mb-6">
+    <!-- Top Insight Tiles -->
+    {% if top_5_insights %}
+    <h2 class="text-xl font-semibold mb-4 text-gray-700">Top Insights</h2>
+    <div class="grid grid-cols-5 gap-4 mb-8">
       {% for insight in top_5_insights %}
         <div class="bg-white rounded shadow p-4 text-center">
-          <div class="text-sm text-gray-500 mt-1">{{ insight.label }}</div>
-          <div class="text-xl font-bold text-gray-800">{{ insight.value }}</div>
+          <div class="text-sm text-gray-500">{{ insight.label }}</div>
+          <div class="text-xl font-bold text-gray-800 mt-1">{{ insight.value }}</div>
         </div>
       {% endfor %}
     </div>
+    {% endif %}
 
-    <!-- Middle: 2 Plots Side by Side -->
-    <div class="grid grid-cols-2 gap-4 mb-6">
-      {% if plot_images|length > 0 %}
-        <img src="data:image/png;base64,{{ plot_images.0 }}" class="rounded shadow w-full"/>
+    <!-- Middle: Two Plots Side-by-Side -->
+    {% if plot_images|length > 0 %}
+    <h2 class="text-xl font-semibold mb-4 text-gray-700">Visual Analysis</h2>
+    <div class="grid grid-cols-2 gap-4 mb-8">
+      {% if plot_images.0 %}
+        <div class="bg-white p-4 rounded shadow">
+          {{ plot_images.0|safe }}
+          <p class="text-sm text-gray-600 text-center">Plot 1</p>
+        </div>
       {% endif %}
-      {% if plot_images|length > 1 %}
-        <img src="data:image/png;base64,{{ plot_images.1 }}" class="rounded shadow w-full"/>
+      {% if plot_images.1 %}
+        <div class="bg-white p-4 rounded shadow">
+          {{ plot_images.1|safe }}
+          <p class="text-sm text-gray-600 text-center">Plot 2</p>
+        </div>
       {% endif %}
     </div>
-
-    <!-- Bottom: 1 Plot Full Width -->
-    {% if plot_images|length > 2 %}
-      <div class="bg-white p-4 rounded shadow">
-        <img src="data:image/png;base64,{{ plot_images.2 }}" class="rounded w-full"/>
-      </div>
     {% endif %}
+
+    <!-- Bottom: One Full-Width Plot -->
+    {% if plot_images|length > 2 %}
+    <div class="bg-white p-4 rounded shadow mb-6">
+      {{ plot_images.2|safe }}
+      <p class="text-sm text-gray-600 text-center">Plot 3 (Overview)</p>
+    </div>
+    {% endif %}
+
+    <!-- Summary Section (uncomment if needed) -->
+    {% comment %} {# 
+    {% if final_summary %}
+    <div class="bg-white p-4 rounded shadow">
+      <h3 class="text-lg font-semibold text-gray-800 mb-2">Final Summary</h3>
+      <p class="text-gray-700 text-sm whitespace-pre-line">{{ final_summary }}</p>
+    </div>
+    {% endif %}
+    #} {% endcomment %}
 
   </div>
 
