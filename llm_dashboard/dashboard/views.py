@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from .llm_pipeline import break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary
+from .llm_pipeline import break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title
 import pandas as pd
 import numpy as np
 import requests
@@ -246,7 +246,7 @@ def dashboard_view(request):
         sub_questions = break_into_subquestions(user_query)
         logging.info(f"=== Break down questions ===\n\n{sub_questions}")
 
-        summaries, plot_paths, filtered_data = [], [], []
+        summaries, plot_paths, filtered_data, q_title = [], [], [], []
 
         for i, sub_q in enumerate(sub_questions):
             logging.info(f"=== Enter loop with question number (Q{i+1}) ===\n\n{sub_q}")
@@ -331,27 +331,30 @@ def dashboard_view(request):
                     )
                     # viz_prompt = f"""Dataset:\n{result.to_markdown(index=False)}"""
                     logging.info(f"=== MODEL 3 Dashboard input (Q{i+1}, Attempt {attempt+1}) ===\n{retry_summary_prompt}\n\n")
-                    if isinstance(result, (pd.DataFrame, pd.Series)):
+                    if isinstance(result, (pd.DataFrame, pd.Series)) and i > 4:
                         viz_code_response = generate_plot_code(retry_summary_prompt)
+                        logging.info(f"=== MODEL 3 Dashboard Plot Code (Q{i+1}, Attempt {attempt+1}) ===\n{viz_code_response}\n\n")
+                        viz_code_response = extract_json_from_response(viz_code_response)
+
+                        local_vars["plt"] = plt
+                        buf = io.BytesIO()
+                        exec(viz_code_response, {}, local_vars)
+                        plt.savefig(buf, format="png")
+                        # buf.seek(0)
+                        # plot_image = Image.open(buf)
+                        plt.close()
+
+                        buf.seek(0)
+                        encoded_img = base64.b64encode(buf.read()).decode('utf-8')
+                        plot_paths.append(encoded_img)
                         # viz_code_response = query_llm(retry_summary_prompt, MODEL_3_SYSTEM_PROMPT)
                     else:
-                        viz_code_response = generate_plot_code(retry_summary_prompt)
+                        viz_code_response = generate_title(sub_q)
+                        logging.info(f"=== MODEL title Dashboard Output (Q{i+1}, Attempt {attempt+1}) ===\n{viz_code_response}\n\n")
+                        q_title.append(viz_code_response)
+                        logging.info(f"=== MODEL title Dashboard Output Saved")
                         # viz_code_response = query_llm(retry_summary_prompt, MODEL_NO_DF_SYSTEM_PROMPT)
                     
-                    
-                    logging.info(f"=== MODEL 3 Dashboard Plot Code (Q{i+1}, Attempt {attempt+1}) ===\n{viz_code_response}\n\n")
-                    viz_code_response = extract_json_from_response(viz_code_response)
-
-                    local_vars["plt"] = plt
-                    buf = io.BytesIO()
-                    exec(viz_code_response, {}, local_vars)
-                    plt.savefig(buf, format="png")
-                    # buf.seek(0)
-                    # plot_image = Image.open(buf)
-                    plt.close()
-
-                    buf.seek(0)
-                    encoded_img = base64.b64encode(buf.read()).decode('utf-8')
                     # plot_paths.append(encoded_img)
                     break
                 except Exception as e:
@@ -361,7 +364,7 @@ def dashboard_view(request):
 
             # logging.info(f"=== plot_image (Q{i+1}) ===\n{plot_image}\n\n")
 
-            plot_paths.append(encoded_img)
+            # plot_paths.append(encoded_img)
 
             viz_code_response = generate_summary(summary_prompt)
 
@@ -384,9 +387,21 @@ def dashboard_view(request):
         #     "loop_range": range(6),
         # }
 
+        # context = {
+        #     "results": zip(sub_questions, plot_paths, filtered_data, q_title),
+        #     "past_questions": [user_question],
+        # }
+
         context = {
-            "results": zip(sub_questions, plot_paths, filtered_data),
-            "past_questions": [user_question],
+            "past_questions": [user_question],  # list of previous questions
+            "top_5_insights": [       # 5 dicts with value + label
+                {"label": q_title[0], "value": "2,390"},
+                {"label": q_title[1], "value": "182"},
+                {"label": q_title[2], "value": "8,147"},
+                {"label": q_title[3], "value": "2,413"},
+                {"label": q_title[4], "value": "17,281"}
+            ],
+            "plot_images": plot_paths
         }
         
     return render(request, 'dashboard.html', context)

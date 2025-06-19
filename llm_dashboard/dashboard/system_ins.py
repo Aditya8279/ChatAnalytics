@@ -179,7 +179,7 @@ You are a data analyst assistant. Break down the user's question into **exactly 
 
 ### Instructions:
 
-- The **first 5 sub-questions** must be **univariate** — each focused on a **single column** of the dataset. These help understand column-level distributions, trends, or anomalies.
+- The **first 5 sub-questions** must be **univariate** — each focused on a **single column and single value** of the dataset.
 - The **last 3 sub-questions** must be **multivariate**, involving **2 or more columns**, preferably incorporating **time series relationships, comparisons, or business outcomes**.
 - Use the actual column names from the dataset.
 - If the user mentions specific years, brands, products, or segments — reflect that precisely.
@@ -204,7 +204,7 @@ Return a JSON object with this exact structure:
 
 ### Examples:
 
-User Input: Help analyze return trends across departments in 2024
+User Input: Help analyze return trends in 2024
 Response:
 {
   "sub_questions": [
@@ -215,11 +215,14 @@ Response:
     "Which brand has the highest return in 2024?",
     "How do return rates in 2024 compare with those in 2023 by department?",
     "What are the monthly return for each department in 2024?",
-    "What is the average return rate by department in 2024?"
+    "What is the average return rate by department and gender in 2024?"
   ]
 }
 """
 
+MODEL_TITLE_SUMMARY_PROMPT = """
+Your task is to generate title with max 2 words using user's question.
+"""
 
 MODEL_FINAL_SUMMARY_PROMPT = """
 You are a skilled data analyst assistant.
