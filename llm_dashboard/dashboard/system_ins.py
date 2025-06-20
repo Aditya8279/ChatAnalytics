@@ -213,8 +213,11 @@ MODEL_BREAKDOWN_SYSTEM_PROMPT = """
 You are a data analyst assistant. Break down the user's question into **exactly 8 clear, actionable, and business-relevant sub-questions** that can guide stakeholder decisions.
 
 ### Strict Rules:
-- The **first 5 sub-questions** must be **univariate** — each focused on generating **single value** only.
-- The **last 3 sub-questions** must be **multivariate**, involving **2 or more columns**, preferably incorporating **time series relationships**.
+1. The **first 5 sub-questions must be UNIVARIATE**:
+   - Each question should focus on analyzing **only one column** from the dataset.
+   - Each question should lead to a **single numeric or categorical value** as the answer (e.g., total sales, average age, top category).
+   - Do NOT include relationships between multiple columns in these 5 questions.
+2. The **last 3 sub-questions** must be **multivariate**, involving **2 or more columns**, preferably incorporating **time series relationships**.
 
 ### Instructions:
 
@@ -241,25 +244,42 @@ Return a JSON object with this exact structure:
 
 ### Examples:
 
-User Input: Help analyze return trends in 2024
+User Input: Help analyze revenue trends in 2024 by department
 Response:
 {
   "sub_questions": [
-    "What is the total number of returns in 2024?",
-    "What is the average return quantity in 2024?",
-    "What is the percentage return change in 2024 compare to 2023?",
-    "What is the maximum return quantity recorded in 2024?",
-    "Which brand has the highest return in 2024?",
-    "How do return rates in 2024 compare with those in 2023 by department?",
-    "What are the monthly return for each department in 2024?",
-    "What is the average return rate by department and gender in 2024?"
+    "What is the total revenue in 2024?",
+    "What is the average revenue in 2024?",
+    "What is the percentage change in revenue in 2024 compare to 2023?",
+    "Which Month has the total highest revenue in 2024",
+    "Which department has the total highest revenue in 2024?",
+    "How does revenue in 2024 compare with those in 2023 by department?",
+    "What are the monthly revenue for each department in 2024?",
+    "What is the average return rate by department in 2024?"
   ]
 }
 """
 
+# MODEL_TITLE_SUMMARY_PROMPT = """
+# Extract the main subject from the user's question and use it to generate a clear, concise title (Max 4 words). Avoid abstract or generic terms. Prefer concrete nouns from the question itself.
+# """
+
 MODEL_TITLE_SUMMARY_PROMPT = """
-Your task is to generate title with max 2 words using user's question.
+Your task is to generate a concise title (maximum 5 words) by extracting the main subject(s) from the user's question. Follow these rules:
+
+1. Use concrete nouns from the question.
+2. Preserve keywords such as Total, Highest, Average, Overall etc in the title if they appear in the user's question.
+3. If user's question include keywords such as 'brand', 'category', ensure that these words are also included in the generated title.
+3. Include relevant symbols, at the end in parentheses '()', based on context:
+   - Use "$" if the question refers to revenue, sales, profit, income, or earnings.
+   - Use "%" if the question refers to growth, change, percentage, or rate.
+   - Use "#" if the question refers to counts, quantities, or numbers.
+   - Use no symbol if the context doesn't imply one.
+4. The title should be informative, self-contained, and aligned with the core topic of the question.
+
+Note: Do not include multiple symbols together.
 """
+
 
 MODEL_FINAL_SUMMARY_PROMPT = """
 You are a skilled data analyst assistant.

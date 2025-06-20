@@ -242,20 +242,31 @@ def dashboard_view(request):
     context = {}
 
     if request.method == 'POST':
-        user_question = request.POST['user_query']
-        csv_file = request.FILES['csv_file']
+        user_question = request.POST.get('user_query', '')
 
-        if request.FILES.get("csv_file"):
+        # ✅ Retrieve the existing list from session or initialize empty list
+        past_questions = request.session.get("past_questions", [])
+
+        # ✅ Add the new question if it's not empty
+        if user_question.strip():
+            past_questions.append(user_question)
+            request.session["past_questions"] = past_questions  # ✅ Save back to session
+
+        # ✅ Safely get the file or None
+        csv_file = request.FILES.get('csv_file')
+
+        if csv_file:
             # Step 1: Read and store CSV in session
-            df = pd.read_csv(request.FILES["csv_file"])
+            df = pd.read_csv(csv_file)
             request.session["csv_data"] = df.to_json()
             request.session["columns"] = list(df.columns)
-        
+
         elif "csv_data" in request.session:
             # Step 2: Load existing CSV from session
             df = pd.read_json(request.session["csv_data"])
         else:
             df = None
+
             
 
         # df = pd.read_csv(csv_file)
@@ -276,7 +287,7 @@ def dashboard_view(request):
         sub_questions = break_into_subquestions(user_query)
         logging.info(f"=== Break down questions ===\n\n{sub_questions}")
 
-        summaries, plot_paths, filtered_data, q_title = [], [], [], []
+        summaries, plot_paths, filtered_data, q_title, filter_result = [], [], [], [], [None,None,None,None,None]
 
         for i, sub_q in enumerate(sub_questions):
             logging.info(f"=== Enter loop with question number (Q{i+1}) ===\n\n{sub_q}")
@@ -317,13 +328,13 @@ def dashboard_view(request):
             # filtered_df = execute_code(code, df)  # safe exec
             # filtered_data.append(filtered_df.head(5).values.tolist())
 
-            if isinstance(result, (pd.DataFrame, pd.Series)) and result is not None and not result.empty:
-                result1 = [result.columns.tolist()] + result.values.tolist()
-                filtered_data.append(result1)
-            elif result is not None:
-                filtered_data.append(result)
-            else:
-                filtered_data.append(None)
+            # if isinstance(result, (pd.DataFrame, pd.Series)) and result is not None and not result.empty:
+            #     result1 = [result.columns.tolist()] + result.values.tolist()
+            #     filtered_data.append(result1)
+            # elif result is not None:
+            #     filtered_data.append(result)
+            # else:
+            filtered_data.append(None)
                 # table_data = None
             
             
@@ -345,8 +356,17 @@ def dashboard_view(request):
                 summary_prompt = f"User Query: {sub_q}\nDataset: \n{result.to_markdown(index=False)}"
                 # summary_prompt = f"Metadata: \n{result_metadata}"
                 
+            elif i < 5:
+                summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
+                if isinstance(result, (int, float)):
+                    result = round(result, 2)
+                    filter_result[i] = result
+                    # filter_result.append(result)
+                else:
+                    filter_result[i] = result
             else:
                 summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
+                    # filter_result.append(result)
 
                 # if result.shape[0] > 1 and result.shape[1] > 1:
 
@@ -417,13 +437,13 @@ def dashboard_view(request):
         # }
 
         context = {
-            "past_questions": [user_question],  # list of previous questions
+            "past_questions": past_questions,  # list of previous questions
             "top_5_insights": [       # 5 dicts with value + label
-                {"label": q_title[0], "value": "2,390"},
-                {"label": q_title[1], "value": "182"},
-                {"label": q_title[2], "value": "8,147"},
-                {"label": q_title[3], "value": "2,413"},
-                {"label": q_title[4], "value": "17,281"}
+                {"label": q_title[0], "value": filter_result[0]},
+                {"label": q_title[1], "value": filter_result[1]},
+                {"label": q_title[2], "value": filter_result[2]},
+                {"label": q_title[3], "value": filter_result[3]},
+                {"label": q_title[4], "value": filter_result[4]}
             ],
             "plot_images": plot_paths
         }
