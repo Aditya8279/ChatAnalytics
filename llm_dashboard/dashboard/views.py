@@ -238,12 +238,41 @@ def inject_plot_formatting(code: str, height: int = 300) -> str:
     return "\n".join(modified_lines)
 
 
+def safe_reset_index(df):
+    
+    df = pd.DataFrame(df)
+
+    # Handle duplicated index names (e.g., multiple "date" levels)
+    index_names = list(df.index.names)
+    counts = {}
+    new_index_names = []
+    
+    for name in index_names:
+        if name in counts:
+            counts[name] += 1
+            new_name = f"{name}_{counts[name]}"
+        elif name in df.columns:
+            counts[name] = 1
+            new_name = f"{name}_1"
+        else:
+            counts[name] = 0
+            new_name = name
+        new_index_names.append(new_name)
+    
+    df.index.names = new_index_names
+    return df.reset_index()
+
 def dashboard_view(request):
     context = {}
 
     if request.method == 'POST':
         user_question = request.POST.get('user_query', '')
 
+        # Detect fresh session or first use
+        if not request.session.get("initialized"):
+            request.session["past_questions"] = []
+            request.session["initialized"] = True
+            
         # ✅ Retrieve the existing list from session or initialize empty list
         past_questions = request.session.get("past_questions", [])
 
@@ -341,7 +370,12 @@ def dashboard_view(request):
 
             plot_image = None
             if isinstance(result, (pd.DataFrame, pd.Series)):
-                result = pd.DataFrame(result).reset_index()
+                # if isinstance(result, (pd.DataFrame)):
+                #     result = safe_reset_index(result)
+                # else:
+                #     result = pd.DataFrame(result).reset_index()
+
+                result = safe_reset_index(result)
                 index_cols = ['index', 'Unnamed: 0']
                 for col in index_cols:
                     if col in result.columns:
@@ -410,10 +444,10 @@ def dashboard_view(request):
 
             # plot_paths.append(encoded_img)
 
-            viz_code_response = generate_summary(summary_prompt)
+            summary_result = generate_summary(summary_prompt)
 
             # summaries[i] = viz_code_response
-            summaries.append(viz_code_response)
+            summaries.append(summary_result)
 
             # viz_code_response = generate_final_summary(retry_summary_prompt)
 
@@ -421,6 +455,13 @@ def dashboard_view(request):
             # plot_path = f'static/plots/subq{i}.png'
             # execute_code(plot_code, filtered_df, save_path=plot_path)
             # plot_paths.append(plot_path)
+
+        logging.info(f"=== MODEL summary Dashboard Input ===\n{summaries}\n\n")
+        combined_insights = "\n\n".join(summaries)
+        combined_insights = f"What are the most important insights or anomalies?\n\n{combined_insights}"
+        final_summary = generate_final_summary(combined_insights)
+        # Convert string to Python dict
+        final_summary = json.loads(final_summary)
 
         # context = {
         #     'sub_questions': sub_questions,
@@ -436,6 +477,8 @@ def dashboard_view(request):
         #     "past_questions": [user_question],
         # }
 
+
+
         context = {
             "past_questions": past_questions,  # list of previous questions
             "top_5_insights": [       # 5 dicts with value + label
@@ -445,7 +488,8 @@ def dashboard_view(request):
                 {"label": q_title[3], "value": filter_result[3]},
                 {"label": q_title[4], "value": filter_result[4]}
             ],
-            "plot_images": plot_paths
+            "plot_images": plot_paths,
+            "final_summary":final_summary
         }
         
     return render(request, 'dashboard.html', context)

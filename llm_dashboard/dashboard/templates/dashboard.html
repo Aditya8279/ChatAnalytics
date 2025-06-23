@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% comment %} <!DOCTYPE html>
 <html>
 <head>
   <title>LLM Dashboard</title>
@@ -79,16 +79,138 @@
     {% endif %}
 
     <!-- Summary Section (uncomment if needed) -->
-    {% comment %} {# 
+    
     {% if final_summary %}
     <div class="bg-white p-4 rounded shadow">
       <h3 class="text-lg font-semibold text-gray-800 mb-2">Final Summary</h3>
       <p class="text-gray-700 text-sm whitespace-pre-line">{{ final_summary }}</p>
     </div>
     {% endif %}
-    #} {% endcomment %}
+    
 
   </div>
 
+</body>
+</html> {% endcomment %}
+
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>LLM Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body class="flex h-screen bg-gray-100">
+
+  <!-- Sidebar -->
+  <div class="w-1/4 bg-gray-800 text-white p-4 flex flex-col">
+    <h2 class="text-xl font-bold mb-4">Data Assistant</h2>
+
+    <form method="POST" enctype="multipart/form-data">
+      {% csrf_token %}
+      <label class="block mb-2">Upload CSV</label>
+      <input type="file" name="csv_file" class="mb-4 w-full p-1 text-black"/>
+
+      <label class="block mb-2">Enter your question</label>
+      <textarea name="user_query" class="w-full h-24 text-black p-1 mb-4" required></textarea>
+
+      <button type="submit" class="bg-blue-500 px-4 py-2 rounded hover:bg-blue-600">Submit</button>
+    </form>
+
+    <hr class="my-4"/>
+
+    <div>
+      <h3 class="text-lg font-semibold mb-2">Previous Questions</h3>
+      <ul class="space-y-1">
+        {% for q in past_questions %}
+          <li class="text-sm">{{ q }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main Dashboard Content -->
+  <div class="w-3/4 p-6 overflow-y-scroll">
+
+    <!-- Top Insight Tiles -->
+    {% if top_5_insights %}
+    <h2 class="text-xl font-semibold mb-4 text-gray-700">Top Insights</h2>
+    <div class="grid grid-cols-5 gap-4 mb-8">
+      {% for insight in top_5_insights %}
+        <div class="bg-white rounded shadow p-4 text-center">
+          <div class="text-sm text-gray-500">{{ insight.label }}</div>
+          <div class="text-xl font-bold text-gray-800 mt-1">{{ insight.value }}</div>
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Middle: Two Plots Side-by-Side -->
+    {% if plot_images|length > 0 %}
+    <h2 class="text-xl font-semibold mb-4 text-gray-700">Visual Analysis</h2>
+    <div class="grid grid-cols-2 gap-4 mb-8">
+      {% if plot_images.0 %}
+        <div class="bg-white p-4 rounded shadow">
+          {{ plot_images.0|safe }}
+          {% comment %} <p class="text-sm text-gray-600 text-center">Plot 1</p> {% endcomment %}
+        </div>
+      {% endif %}
+      {% if plot_images.1 %}
+        <div class="bg-white p-4 rounded shadow">
+          {{ plot_images.1|safe }}
+          {% comment %} <p class="text-sm text-gray-600 text-center">Plot 2</p> {% endcomment %}
+        </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Bottom: Plot 3 and Summary Side-by-Side -->
+    {% if plot_images|length > 2 or final_summary %}
+    <div class="grid grid-cols-2 gap-4 mb-6">
+
+      <!-- Plot 3 -->
+      {% if plot_images|length > 2 %}
+      <div class="bg-white p-4 rounded shadow">
+        {{ plot_images.2|safe }}
+        {% comment %} <p class="text-sm text-gray-600 text-center">Plot 3 (Overview)</p> {% endcomment %}
+      </div>
+      {% endif %}
+
+      <!-- Final Summary -->
+      {% if final_summary %}
+      <div class="bg-white p-4 rounded shadow">
+        <h3 class="text-lg font-semibold text-gray-800 mb-2">Final Summary</h3>
+
+        <!-- Findings -->
+        <div class="mb-3">
+          <h4 class="text-md font-semibold text-green-700 mb-1">Findings</h4>
+          <ul class="list-disc list-inside text-gray-700 text-sm">
+            {% for f in final_summary.findings %}
+              <li>{{ f }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+
+        <!-- Anomalies -->
+        <div>
+          <h4 class="text-md font-semibold text-red-700 mb-1">Anomalies</h4>
+          {% if final_summary.anomalies.0 == None %}
+            <p class="text-gray-500 text-sm">None</p>
+          {% else %}
+            <ul class="list-disc list-inside text-gray-700 text-sm">
+              {% for a in final_summary.anomalies %}
+                <li>{{ a }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+    {% endif %}
+
+  </div>
 </body>
 </html>
