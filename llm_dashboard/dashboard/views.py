@@ -25,6 +25,11 @@ from datetime import datetime
 import os
 # from django.http import HttpResponse
 
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
+from django.utils.timezone import now
+
 def extract_metadata(df):
     sample = df.head(20).copy()
     
@@ -263,10 +268,6 @@ def safe_reset_index(df):
     return df.reset_index()
 
 
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.conf import settings
-
 @csrf_exempt
 def upload_csv(request):
     if request.method == 'POST':
@@ -302,9 +303,6 @@ def upload_csv(request):
         else:
             df = None
             return JsonResponse({"error": "Invalid request"}, status=400)
-
-
-from django.utils.timezone import now
 
 def dashboard_view(request):
     context = {}
