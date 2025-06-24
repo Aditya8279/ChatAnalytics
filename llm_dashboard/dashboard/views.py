@@ -262,54 +262,90 @@ def safe_reset_index(df):
     df.index.names = new_index_names
     return df.reset_index()
 
-def dashboard_view(request):
-    context = {}
 
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
+
+@csrf_exempt
+def upload_csv(request):
     if request.method == 'POST':
-        user_question = request.POST.get('user_query', '')
-
-        # Detect fresh session or first use
-        if not request.session.get("initialized"):
-            request.session["past_questions"] = []
-            request.session["initialized"] = True
-            
-        # ✅ Retrieve the existing list from session or initialize empty list
-        past_questions = request.session.get("past_questions", [])
-
-        # ✅ Add the new question if it's not empty
-        if user_question.strip():
-            past_questions.append(user_question)
-            request.session["past_questions"] = past_questions  # ✅ Save back to session
-
-        # ✅ Safely get the file or None
         csv_file = request.FILES.get('csv_file')
 
         if csv_file:
             # Step 1: Read and store CSV in session
             df = pd.read_csv(csv_file)
+            # Step 1: Drop columns with > 50% missing values
+            df = df.loc[:, df.isnull().mean() <= 0.5]
+
+            # Step 2: Fill remaining missing values
+            for col in df.columns:
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    df[col] = df[col].fillna(0)
+                else:
+                    df[col] = df[col].fillna(pd.NA)  # or None
             request.session["csv_data"] = df.to_json()
             request.session["columns"] = list(df.columns)
+
+            # Save to a file for download
+            download_path = os.path.join(settings.MEDIA_ROOT, "cleaned_data.csv")
+            df.to_csv(download_path, index=False)
+
+            return JsonResponse({
+                "message": f"✅ The final dataset contains {df.shape[1]} columns and {df.shape[0]} rows after preprocessing.",
+                "download_url": f"{settings.MEDIA_URL}cleaned_data.csv"
+            })
 
         elif "csv_data" in request.session:
             # Step 2: Load existing CSV from session
             df = pd.read_json(request.session["csv_data"])
         else:
             df = None
+            return JsonResponse({"error": "Invalid request"}, status=400)
 
+
+from django.utils.timezone import now
+
+def dashboard_view(request):
+    context = {}
+
+    if request.method == 'POST':
+        user_question = request.POST.get('user_query', '')
+
+        # if not request.session.session_key:
+        #     request.session.create()  # force session to initialize
             
+        # Detect fresh session or first use
+        # if not request.session.get("initialized"):
+        #     request.session["past_questions"] = []
+        #     request.session["initialized"] = True
 
-        # df = pd.read_csv(csv_file)
+        # Reset past questions if session is new (first time hitting POST)
+        if not request.session.get("visited_at1"):
+            request.session["past_questions"] = []
+            request.session["visited_at1"] = str(now())  # or uuid.uuid4().hex
+
+        # ✅ Add the new question if it's not empty
+        if user_question.strip():
+            # ✅ Retrieve the existing list from session or initialize empty list
+            past_questions = request.session.get("past_questions", [])
+            past_questions.append(user_question)
+            request.session["past_questions"] = past_questions  # ✅ Save back to session
+
+        # ✅ Load preprocessed DataFrame from session
+        if "csv_data" in request.session:
+            df = pd.read_json(request.session["csv_data"])
+        else:
+            return render(request, "dashboard.html", {
+                "error": "❌ No CSV uploaded yet. Please upload a file first.",
+                "past_questions": past_questions
+            })
 
         df = df.applymap(remove_special_chars)
         df = convert_string_numerics(df)
         metadata = extract_metadata(df)
 
         user_query = f"User Question: {user_question}\n\nMetadata:\n{metadata}"
-        # metadata = {
-        #     'columns': list(df.columns),
-        #     'dtypes': df.dtypes.astype(str).to_dict(),
-        #     'sample': df.head(3).to_dict(orient='records')
-        # }
 
 
         logging.info(f"=== user_query ===\n\n{user_query}")
@@ -381,14 +417,16 @@ def dashboard_view(request):
                     if col in result.columns:
                         result = result.drop(columns=col)
 
+                result_head = result.head(14)
+
                 # local_vars["result"] = result.copy()
                 local_vars = {"df": result.copy()}
                 # logging.info(f"=== MODEL 3 Dashboard | Before extract_metadata function (Q{i+1}) ===\n\n")
                 # result_metadata = extract_metadata(result)
                 # logging.info(f"=== MODEL 3 Dashboard | after extract_metadata function (Q{i+1}) ===\n\n")
 
-                summary_prompt = f"User Query: {sub_q}\nDataset: \n{result.to_markdown(index=False)}"
-                # summary_prompt = f"Metadata: \n{result_metadata}"
+                # summary_prompt = f"User Query: {sub_q}\nDataset: \n{result_head.to_markdown(index=False)}"
+                summary_prompt = f"Dataset: \n{result_head.to_markdown(index=False)}"
                 
             elif i < 5:
                 summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
@@ -415,7 +453,7 @@ def dashboard_view(request):
                     )
                     # viz_prompt = f"""Dataset:\n{result.to_markdown(index=False)}"""
                     logging.info(f"=== MODEL 3 Dashboard input (Q{i+1}, Attempt {attempt+1}) ===\n{retry_summary_prompt}\n\n")
-                    if isinstance(result, (pd.DataFrame, pd.Series)) and i > 4:
+                    if isinstance(result, (pd.DataFrame, pd.Series)):
                         viz_code_response = generate_plot_code(retry_summary_prompt)
                         logging.info(f"=== MODEL 3 Dashboard Plot Code (Q{i+1}, Attempt {attempt+1}) ===\n{viz_code_response}\n\n")
                         viz_code_response = extract_json_from_response(viz_code_response)

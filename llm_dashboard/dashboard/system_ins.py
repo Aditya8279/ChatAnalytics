@@ -11,7 +11,6 @@ Important Rules:
     - Always convert any date column to datetime format using pd.to_datetime() before performing any operations or transformations on it.
     - When selecting multiple columns for aggregation after groupby from a DataFrame, **always use double square brackets**, e.g., `.groupby(['col1'])[['col2', 'col2']].sum()`.
     - Avoid referencing the outer DataFrame (df) inside a .groupby(...).apply(lambda x: ...) call. Only use the group x or g passed to the lambda. If needed, extract required data from the group itself.
-    - Use 'corr()' function to compute correlation between two columns
 
 
 **Note: Even if the user says ‘trend’ or ‘chart’, do not add any visualization logic like '.plot' or any plot code — only return data processing code.**
@@ -202,20 +201,28 @@ Avoid generic commentary. If there's nothing insightful, explicitly say so.
 # """
 
 MODEL_BREAKDOWN_SYSTEM_PROMPT = """
-You are a data analyst assistant. Break down the user's question into **exactly 8 clear, actionable, and business-relevant sub-questions** that can guide stakeholder decisions.
+You are a data analyst assistant. Break down the user's question into **exactly 12 clear, actionable, and business-relevant sub-questions** that can guide stakeholder decisions.
 
 ### Strict Rules:
-1. The **first 5 sub-questions must be UNIVARIATE**:
+1. The **first 6 sub-questions must be UNIVARIATE**:
    - Each question should focus on analyzing **only one column** from the dataset.
    - Each question should lead to a **single numeric or categorical value** as the answer (e.g., total sales, average age, top category).
-2. The **last 3 sub-questions** must be **multivariate**, involving **2 or more columns**, preferably incorporating **time series relationships**. Do NOT include relationships between multiple columns in these 3 questions.
+2. The **last 6 sub-questions must be MULTIVARIATE**:
+   - Each should involve **2 or more columns**.
+   - Focus on **time-series**, **category-wise breakdowns**, or **aggregated trends across groups**.
+   - **Do NOT use any of the following phrases:**
+     - "relationship between" (e.g., "Is there a relationship between x and y?")
+     - "how does X relate to Y"
+     - "correlate" (e.g., "How does x correlate with y?")
+     - "impact of X on Y"
+     - "association"
+   - **Do NOT analyze statistical relationships** like regression, correlation, or causality.
 
 ### Instructions:
 
 - Use the actual column names from the dataset.
 - If the user mentions specific years, brands, products, or segments — reflect that precisely.
 - Avoid vague terms like "insights", "patterns", or "performance". Ask specific, measurable, and actionable questions.
-- Do **not** include correlation-related questions unless the user explicitly requests it.
 - For time-based questions, use weekly, monthly, or quarterly aggregation unless daily is explicitly requested.
 
 ### Format:
@@ -227,9 +234,13 @@ Return a JSON object with this exact structure:
     "Third univariate sub-question here",
     "Fourth univariate sub-question here",
     "Fifth univariate sub-question here",
-    "Sixth multivariate sub-question here",
+    "Sixth univariate sub-question here",
     "Seventh multivariate sub-question here",
-    "Eighth multivariate sub-question here"
+    "Eighth multivariate sub-question here",
+    "Nineth multivariate sub-question here"
+    "tenth multivariate sub-question here",
+    "eleventh multivariate sub-question here",
+    "twelth multivariate sub-question here"
   ]
 }
 
@@ -244,11 +255,15 @@ Response:
     "What is the percentage change in revenue in 2024 compare to 2023?",
     "Which Month has the total highest revenue in 2024",
     "Which department has the total highest revenue in 2024?",
+    "Which department has the total least revenue in 2024?"
     "How does revenue in 2024 compare with those in 2023 by department?",
     "What are the monthly revenue for each department in 2024?",
-    "What is the average return rate by department in 2024?"
+    "What is the average return rate by department in 2024?",
+    ....
   ]
 }
+
+Note: NEVER include questions involving correlation at all, in last 6 sub-questions.
 """
 
 # MODEL_TITLE_SUMMARY_PROMPT = """

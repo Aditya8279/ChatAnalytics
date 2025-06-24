@@ -16,10 +16,24 @@ Including another URLconf
 """
 
 from django.contrib import admin
-from django.urls import path
-from dashboard.views import dashboard_view 
+from django.urls import path, include
+from dashboard.views import dashboard_view, upload_csv  
+
+from django.conf import settings
+from django.conf.urls.static import static
+
+
+# urlpatterns = [
+#     path("admin/", admin.site.urls),
+#     path("", dashboard_view, name="dashboard"),
+#     path("upload-csv/", upload_csv, name="upload_csv"), 
+# ]
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
-    path("", dashboard_view, name="dashboard"), 
+    path('admin/', admin.site.urls),
+    path('', include('dashboard.urls')),  # <--- delegates to dashboard.urls
 ]
+
+# Serve media files during development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
