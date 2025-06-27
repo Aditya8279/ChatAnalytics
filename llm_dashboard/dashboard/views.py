@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from .llm_pipeline import break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title
+from .llm_pipeline import break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
 import pandas as pd
 import numpy as np
 import requests
@@ -428,17 +428,22 @@ def dashboard_view(request):
                 summary_prompt = f"Dataset: \n{result_head.to_markdown(index=False)}"
                 
             else:
-                result = round(result, 2)
-                summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
-                description = generate_description(summary_prompt)
-                description_list[i] = description
-                filter_result[i] = result
-                # if isinstance(result, (int, float)):
-                #     result = round(result, 2)
-                #     filter_result[i] = result
-                #     # filter_result.append(result)
-                # else:
-                #     filter_result[i] = result
+                # summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
+                
+                # filter_result[i] = result
+
+                if isinstance(result, (int, float)):
+                    result = round(result, 2)
+                    summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
+                    description = generate_description(summary_prompt)
+                    description_list[i] = description
+                    filter_result[i] = result
+                    # filter_result.append(result)
+                else:
+                    summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
+                    description = generate_description(summary_prompt)
+                    description_list[i] = description
+                    filter_result[i] = result
 
                     # filter_result.append(result)
 
@@ -526,7 +531,7 @@ def dashboard_view(request):
 
         context = {
             "past_questions": past_questions,  # list of previous questions
-            "top_insights": top_insights,
+            "top_insights": top_insights[:5],
             "plot_images": plot_paths,
             "final_summary":final_summary
         }
