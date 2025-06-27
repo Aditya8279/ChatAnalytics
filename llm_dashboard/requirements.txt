@@ -10,6 +10,7 @@ fpdf
 dotenv
 tabulate
 plotly
+gunicorn
 
 # Optional (built-in, but include for completeness or deployment)
 python-dateutil
