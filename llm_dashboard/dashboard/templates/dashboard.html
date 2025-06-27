@@ -42,11 +42,17 @@
   <div class="w-3/4 p-6 overflow-y-scroll">
 
     <!-- Top Insight Tiles -->
-    {% if top_5_insights %}
+    {% if top_insights %}
     <h2 class="text-xl font-semibold mb-4 text-gray-700">Top Insights</h2>
     <div class="grid grid-cols-5 gap-4 mb-8">
-      {% for insight in top_5_insights %}
-        <div class="bg-white rounded shadow p-4 text-center">
+      {% for insight in top_insights %}
+        <div class="relative group bg-white rounded shadow p-4 text-center cursor-pointer">
+          <!-- Tooltip on Hover -->
+          <div class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">
+            {{ insight.description }}
+          </div>
+
+          <!-- Tile Content -->
           <div class="text-sm text-gray-500">{{ insight.label }}</div>
           <div class="text-xl font-bold text-gray-800 mt-1">{{ insight.value }}</div>
         </div>

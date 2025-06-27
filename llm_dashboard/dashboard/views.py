@@ -31,7 +31,7 @@ from django.conf import settings
 from django.utils.timezone import now
 
 def extract_metadata(df):
-    sample = df.head(20).copy()
+    sample = df.head(13).copy()
     
     # Convert potentially non-serializable types to strings
     sample = sample.applymap(lambda x: str(x) if isinstance(x, (pd.Timestamp, pd.Timedelta, np.generic)) else x)
@@ -275,16 +275,17 @@ def upload_csv(request):
 
         if csv_file:
             # Step 1: Read and store CSV in session
-            df = pd.read_csv(csv_file)
+            df = pd.read_csv(csv_file, dtype=str, low_memory=False)
             # Step 1: Drop columns with > 50% missing values
             df = df.loc[:, df.isnull().mean() <= 0.5]
 
             # Step 2: Fill remaining missing values
             for col in df.columns:
-                if pd.api.types.is_numeric_dtype(df[col]):
-                    df[col] = df[col].fillna(0)
-                else:
-                    df[col] = df[col].fillna(pd.NA)  # or None
+                # if pd.api.types.is_numeric_dtype(df[col]):
+                #     df[col] = df[col].fillna(0)
+                # else:
+                df[col] = df[col].fillna(pd.NA)  # or None
+
             request.session["csv_data"] = df.to_json()
             request.session["columns"] = list(df.columns)
 
@@ -338,7 +339,7 @@ def dashboard_view(request):
                 "error": "❌ No CSV uploaded yet. Please upload a file first.",
                 "past_questions": past_questions
             })
-
+        
         df = df.applymap(remove_special_chars)
         df = convert_string_numerics(df)
         metadata = extract_metadata(df)
@@ -350,7 +351,7 @@ def dashboard_view(request):
         sub_questions = break_into_subquestions(user_query)
         logging.info(f"=== Break down questions ===\n\n{sub_questions}")
 
-        summaries, plot_paths, filtered_data, q_title, filter_result = [], [], [], [], [None,None,None,None,None]
+        summaries, plot_paths, filtered_data, q_title, filter_result, description_list = [], [], [], [None,None,None,None,None,None,None,None,None,None,None,None], [None,None,None,None,None,None,None,None,None,None,None,None], [None,None,None,None,None,None,None,None,None,None,None,None]
 
         for i, sub_q in enumerate(sub_questions):
             logging.info(f"=== Enter loop with question number (Q{i+1}) ===\n\n{sub_q}")
@@ -426,16 +427,19 @@ def dashboard_view(request):
                 # summary_prompt = f"User Query: {sub_q}\nDataset: \n{result_head.to_markdown(index=False)}"
                 summary_prompt = f"Dataset: \n{result_head.to_markdown(index=False)}"
                 
-            elif i < 5:
-                summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
-                if isinstance(result, (int, float)):
-                    result = round(result, 2)
-                    filter_result[i] = result
-                    # filter_result.append(result)
-                else:
-                    filter_result[i] = result
             else:
+                result = round(result, 2)
                 summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
+                description = generate_description(summary_prompt)
+                description_list[i] = description
+                filter_result[i] = result
+                # if isinstance(result, (int, float)):
+                #     result = round(result, 2)
+                #     filter_result[i] = result
+                #     # filter_result.append(result)
+                # else:
+                #     filter_result[i] = result
+
                     # filter_result.append(result)
 
                 # if result.shape[0] > 1 and result.shape[1] > 1:
@@ -465,7 +469,8 @@ def dashboard_view(request):
                     else:
                         viz_code_response = generate_title(sub_q)
                         logging.info(f"=== MODEL title Dashboard Output (Q{i+1}, Attempt {attempt+1}) ===\n{viz_code_response}\n\n")
-                        q_title.append(viz_code_response)
+                        q_title[i] = viz_code_response
+                        # q_title.append(viz_code_response)
                         logging.info(f"=== MODEL title Dashboard Output Saved")
                         # viz_code_response = query_llm(retry_summary_prompt, MODEL_NO_DF_SYSTEM_PROMPT)
                     
@@ -514,16 +519,14 @@ def dashboard_view(request):
         # }
 
 
+        top_insights = []
+        for label, value, description in zip(q_title, filter_result, description_list):
+            if label and value:  # Exclude if either is None, empty, or falsy
+                top_insights.append({"label": label, "value": value, "description": description})
 
         context = {
             "past_questions": past_questions,  # list of previous questions
-            "top_5_insights": [       # 5 dicts with value + label
-                {"label": q_title[0], "value": filter_result[0]},
-                {"label": q_title[1], "value": filter_result[1]},
-                {"label": q_title[2], "value": filter_result[2]},
-                {"label": q_title[3], "value": filter_result[3]},
-                {"label": q_title[4], "value": filter_result[4]}
-            ],
+            "top_insights": top_insights,
             "plot_images": plot_paths,
             "final_summary":final_summary
         }

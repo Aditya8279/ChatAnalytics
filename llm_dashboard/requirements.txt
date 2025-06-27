@@ -7,6 +7,9 @@ openai
 matplotlib
 Pillow
 fpdf
+dotenv
+tabulate
+plotly
 
 # Optional (built-in, but include for completeness or deployment)
 python-dateutil
