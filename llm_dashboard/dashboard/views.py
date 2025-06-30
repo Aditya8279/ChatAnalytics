@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from .llm_pipeline import break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
+from .llm_pipeline import classification_agent, break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
 import pandas as pd
 import numpy as np
 import requests
@@ -9,6 +9,8 @@ import openai
 
 import difflib
 import re
+
+import logging
 
 import logging
 import pandas as pd
@@ -134,7 +136,7 @@ def format_df_summary_table_as_markdown(df: pd.DataFrame) -> str:
         lines.append(f"| {col} | {samples[0]} | {samples[1]} | {samples[2]} |")
     return "\n".join(lines)
 
-import re
+
 
 def fix_llm_code(raw_code: str) -> str:
 
@@ -205,7 +207,6 @@ def replace_dataframe_var(code: str) -> str:
 
 # NO_PLOT_PLACEHOLDER = Image.open("no_plot.png")
 
-import logging
 # Configure logging
 logging.basicConfig(
     filename="model_outputs.log",  # log file name
@@ -216,6 +217,7 @@ logging.basicConfig(
 def inject_plot_formatting(code: str, height: int = 300) -> str:
     """
     Inject layout and HTML rendering into Plotly figure code.
+    Also removes 'fig.show()' if present.
 
     Parameters:
     - code (str): Python code string containing the Plotly figure.
@@ -229,14 +231,22 @@ def inject_plot_formatting(code: str, height: int = 300) -> str:
 
     fig_assigned = False
     for line in lines:
+        stripped = line.strip()
+        
+        # Skip fig.show() line
+        if stripped.startswith("fig.show()"):
+            continue
+        
         modified_lines.append(line)
-        if not fig_assigned and line.strip().startswith("fig = "):
+
+        if not fig_assigned and stripped.startswith("fig = "):
             # Insert formatting after first fig assignment
             modified_lines.append(
-                f"fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), height={height})"
+                f"fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True, height={height}, "
+                f"xaxis=dict(showticklabels=False), yaxis=dict(showticklabels=False))"
             )
             modified_lines.append(
-                'plot_html = fig.to_html(full_html=False, include_plotlyjs=False, config={"displayModeBar": False})'
+                'plot_html = fig.to_html(full_html=False, include_plotlyjs=False, config={"displayModeBar": False, "responsive": True})'
             )
             fig_assigned = True
 
@@ -266,6 +276,25 @@ def safe_reset_index(df):
     
     df.index.names = new_index_names
     return df.reset_index()
+
+def insert_user_question(sub_questions, user_question, analysis_info):
+    question_type = analysis_info["question_type"]
+    scope = analysis_info["scope"]
+
+    if question_type != "Direct":
+        return sub_questions  # Only direct questions should be inserted
+
+    # Insert at the correct index based on scope
+    if scope == "SingleValue":
+        insert_index = min(4, len(sub_questions))  # Position 5 (0-indexed)
+    elif scope == "MultipleValue":
+        insert_index = min(6, len(sub_questions))  # Position 7
+    else:
+        return sub_questions  # Do not insert if scope is Unknown
+
+    sub_questions.insert(insert_index, user_question)
+    return sub_questions
+
 
 
 @csrf_exempt
@@ -308,27 +337,35 @@ def upload_csv(request):
 def dashboard_view(request):
     context = {}
 
+    # if not request.session.session_key:
+    #     request.session.create()  # force session to initialize
+        
+    # Detect fresh session or first use
+    # if not request.session.get("initialized"):
+    #     request.session["past_questions"] = []
+    #     request.session["initialized"] = True
+
+    # Reset past questions if session is new (first-time visit)
+    if not request.session.get("visited_at1"):
+        request.session["past_questions"] = []
+        request.session["visited_at1"] = str(now())  # or use uuid if needed
+
+    # No need to check again — it's already initialized above
+    past_questions = request.session["past_questions"]
+
+    top_insights=[]
+    plot_paths=[]
+    final_summary=None
+
     if request.method == 'POST':
         user_question = request.POST.get('user_query', '')
-
-        # if not request.session.session_key:
-        #     request.session.create()  # force session to initialize
-            
-        # Detect fresh session or first use
-        # if not request.session.get("initialized"):
-        #     request.session["past_questions"] = []
-        #     request.session["initialized"] = True
-
-        # Reset past questions if session is new (first time hitting POST)
-        if not request.session.get("visited_at1"):
-            request.session["past_questions"] = []
-            request.session["visited_at1"] = str(now())  # or uuid.uuid4().hex
 
         # ✅ Add the new question if it's not empty
         if user_question.strip():
             # ✅ Retrieve the existing list from session or initialize empty list
             past_questions = request.session.get("past_questions", [])
-            past_questions.append(user_question)
+            # past_questions.append(user_question)
+            past_questions.insert(0, user_question)
             request.session["past_questions"] = past_questions  # ✅ Save back to session
 
         # ✅ Load preprocessed DataFrame from session
@@ -344,6 +381,11 @@ def dashboard_view(request):
         df = convert_string_numerics(df)
         metadata = extract_metadata(df)
 
+        analysis_info = classification_agent(user_question)
+        logging.info(f"=== classification_agent output ===\n\n{analysis_info}")
+        # Parse the string into a dictionary
+        analysis_info = json.loads(analysis_info)
+
         user_query = f"User Question: {user_question}\n\nMetadata:\n{metadata}"
 
 
@@ -351,7 +393,13 @@ def dashboard_view(request):
         sub_questions = break_into_subquestions(user_query)
         logging.info(f"=== Break down questions ===\n\n{sub_questions}")
 
-        summaries, plot_paths, filtered_data, q_title, filter_result, description_list = [], [], [], [None,None,None,None,None,None,None,None,None,None,None,None], [None,None,None,None,None,None,None,None,None,None,None,None], [None,None,None,None,None,None,None,None,None,None,None,None]
+        
+        updated_list = insert_user_question(sub_questions, user_question, analysis_info)
+        logging.info(f"=== Updated Break down questions list ===\n\n{updated_list}")
+
+        sub_questions = updated_list
+
+        summaries, plot_paths, filtered_data, q_title, filter_result, description_list = [], [], [], [None,None,None,None,None,None,None,None,None,None,None,None,None], [None,None,None,None,None,None,None,None,None,None,None,None, None], [None,None,None,None,None,None,None,None,None,None,None,None,None]
 
         for i, sub_q in enumerate(sub_questions):
             logging.info(f"=== Enter loop with question number (Q{i+1}) ===\n\n{sub_q}")
@@ -404,7 +452,7 @@ def dashboard_view(request):
             
 
             plot_image = None
-            if isinstance(result, (pd.DataFrame, pd.Series)):
+            if isinstance(result, pd.DataFrame) and result.shape[0] > 1 and result.shape[1] > 1 or isinstance(result, pd.Series) and result.shape[0] > 1:
                 # if isinstance(result, (pd.DataFrame)):
                 #     result = safe_reset_index(result)
                 # else:
@@ -440,10 +488,11 @@ def dashboard_view(request):
                     filter_result[i] = result
                     # filter_result.append(result)
                 else:
-                    summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
-                    description = generate_description(summary_prompt)
-                    description_list[i] = description
-                    filter_result[i] = result
+                    if not isinstance(result, (pd.DataFrame, pd.Series)):
+                        summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
+                        description = generate_description(summary_prompt)
+                        description_list[i] = description
+                        filter_result[i] = result
 
                     # filter_result.append(result)
 
@@ -460,7 +509,7 @@ def dashboard_view(request):
                     )
                     # viz_prompt = f"""Dataset:\n{result.to_markdown(index=False)}"""
                     logging.info(f"=== MODEL 3 Dashboard input (Q{i+1}, Attempt {attempt+1}) ===\n{retry_summary_prompt}\n\n")
-                    if isinstance(result, (pd.DataFrame, pd.Series)):
+                    if isinstance(result, pd.DataFrame) and result.shape[0] > 1 and result.shape[1] > 1 or isinstance(result, pd.Series) and result.shape[0] > 1:
                         viz_code_response = generate_plot_code(retry_summary_prompt)
                         logging.info(f"=== MODEL 3 Dashboard Plot Code (Q{i+1}, Attempt {attempt+1}) ===\n{viz_code_response}\n\n")
                         viz_code_response = extract_json_from_response(viz_code_response)
@@ -493,7 +542,11 @@ def dashboard_view(request):
             summary_result = generate_summary(summary_prompt)
 
             # summaries[i] = viz_code_response
-            summaries.append(summary_result)
+            # summaries.append(summary_result)
+            summaries.append({
+                "question": sub_q,
+                "summary": summary_result
+            })
 
             # viz_code_response = generate_final_summary(retry_summary_prompt)
 
@@ -503,9 +556,14 @@ def dashboard_view(request):
             # plot_paths.append(plot_path)
 
         logging.info(f"=== MODEL summary Dashboard Input ===\n{summaries}\n\n")
-        combined_insights = "\n\n".join(summaries)
-        combined_insights = f"What are the most important insights or anomalies?\n\n{combined_insights}"
+        # combined_insights = "\n\n".join(summaries)
+
+        combined_insights = "\n\n".join(
+            f"Q: {item['question']}\nA: {item['summary']}" for item in summaries
+        )
+        combined_insights = f"What are the most important insights or anomalies based on User's Question?\n\nUser Question:{user_question}\n\ncombined Q&A:\n{combined_insights}"
         final_summary = generate_final_summary(combined_insights)
+        logging.info(f"=== MODEL final summary Dashboard Output ===\n{final_summary}\n\n")
         # Convert string to Python dict
         final_summary = json.loads(final_summary)
 
@@ -529,12 +587,12 @@ def dashboard_view(request):
             if label and value:  # Exclude if either is None, empty, or falsy
                 top_insights.append({"label": label, "value": value, "description": description})
 
-        context = {
-            "past_questions": past_questions,  # list of previous questions
-            "top_insights": top_insights[:5],
-            "plot_images": plot_paths,
-            "final_summary":final_summary
-        }
+    context = {
+        "past_questions": past_questions,  # list of previous questions
+        "top_insights": top_insights[:5],
+        "plot_images": plot_paths,
+        "final_summary":final_summary
+    }
         
     return render(request, 'dashboard.html', context)
     # return HttpResponse("<h1>Hello from Django!</h1>")
