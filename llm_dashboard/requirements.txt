@@ -1,0 +1,23 @@
+# Core dependencies
+Django
+pandas
+numpy
+requests
+openai
+matplotlib
+Pillow
+fpdf
+dotenv
+tabulate
+plotly
+gunicorn
+
+# Optional (built-in, but include for completeness or deployment)
+python-dateutil
+
+# No pip install required:
+# - json, re, difflib, io, base64, time, logging, tempfile, os, datetime
+#   are part of Python Standard Library
+
+# For timezone support (used in `now()` from `django.utils.timezone`)
+pytz

@@ -1,0 +1,381 @@
+{% comment %} <!DOCTYPE html>
+<html>
+<head>
+  <title>LLM Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body class="flex h-screen bg-gray-100">
+
+  <!-- Sidebar -->
+  <div class="w-1/4 bg-gray-800 text-white p-4 flex flex-col">
+    <h2 class="text-xl font-bold mb-4">Data Assistant</h2>
+
+    <!-- CSV Upload (AJAX) -->
+    <label class="block mb-2">Upload CSV</label>
+    <input type="file" id="csv-file-input" accept=".csv" class="mb-2 w-full p-1 text-black">
+    <div id="upload-info" class="text-sm text-green-700 mb-4"></div>
+
+    <!-- Question Input -->
+    <form method="POST">
+      {% csrf_token %}
+      <label class="block mb-2">Enter your question</label>
+      <textarea name="user_query" class="w-full h-24 text-black p-1 mb-4" required></textarea>
+
+      <button type="submit" class="bg-blue-500 px-4 py-2 rounded hover:bg-blue-600">Submit</button>
+    </form>
+
+    <hr class="my-4"/>
+
+    <!-- Past Questions -->
+    <div>
+      <h3 class="text-lg font-semibold mb-2">Previous Questions</h3>
+      <ul class="space-y-1">
+        {% for q in past_questions %}
+          <li class="text-sm">{{ q }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main Dashboard Content -->
+  <div class="w-3/4 p-6 overflow-y-scroll">
+
+    <!-- Top Insight Tiles -->
+    {% if top_insights %}
+    <h2 class="text-xl font-semibold mb-4 text-gray-700">Top Insights</h2>
+    <div class="grid grid-cols-5 gap-4 mb-8">
+      {% for insight in top_insights %}
+        <div class="relative group bg-white rounded shadow p-4 text-center cursor-pointer">
+          <!-- Tooltip on Hover -->
+          <div class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">
+            {{ insight.description }}
+          </div>
+
+          <!-- Tile Content -->
+          <div class="text-sm text-gray-500">{{ insight.label }}</div>
+          <div class="text-xl font-bold text-gray-800 mt-1">{{ insight.value }}</div>
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Middle: Two Plots Side-by-Side -->
+    {% if plot_images|length > 0 %}
+    <h2 class="text-xl font-semibold mb-4 text-gray-700">Visual Analysis</h2>
+    <div class="grid grid-cols-2 gap-4 mb-8">
+      {% if plot_images.0 %}
+        <div class="bg-white p-4 rounded shadow">
+          {{ plot_images.0|safe }}
+        </div>
+      {% endif %}
+      {% if plot_images.1 %}
+        <div class="bg-white p-4 rounded shadow">
+          {{ plot_images.1|safe }}
+        </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Bottom: Plot 3 and Summary Side-by-Side -->
+    {% if plot_images|length > 2 or final_summary %}
+    <div class="grid grid-cols-2 gap-4 mb-6">
+
+      <!-- Plot 3 -->
+      {% if plot_images|length > 2 %}
+      <div class="bg-white p-4 rounded shadow">
+        {{ plot_images.2|safe }}
+      </div>
+      {% endif %}
+
+      <!-- Final Summary -->
+      {% if final_summary %}
+      <div class="bg-white p-4 rounded shadow">
+        <h3 class="text-lg font-semibold text-gray-800 mb-2">Final Summary</h3>
+
+        <!-- One-liner final summary -->
+        <p class="text-gray-800 text-sm italic mb-4">
+          {{ final_summary.final_summary }}
+        </p>
+
+        <!-- Findings -->
+        <div class="mb-3">
+          <h4 class="text-md font-semibold text-green-700 mb-1">Findings</h4>
+          <ul class="list-disc list-inside text-gray-700 text-sm">
+            {% for f in final_summary.findings %}
+              <li>{{ f }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+
+        <!-- Anomalies -->
+        <div>
+          <h4 class="text-md font-semibold text-red-700 mb-1">Anomalies</h4>
+          {% if final_summary.anomalies.0 == None %}
+            <p class="text-gray-500 text-sm">None</p>
+          {% else %}
+            <ul class="list-disc list-inside text-gray-700 text-sm">
+              {% for a in final_summary.anomalies %}
+                <li>{{ a }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- AJAX Upload Script -->
+  <script>
+    document.getElementById('csv-file-input').addEventListener('change', function () {
+      const file = this.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append('csv_file', file);
+
+      fetch('/upload-csv/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}'
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.message) {
+          document.getElementById('upload-info').innerHTML = `
+            <span class="inline-block mr-2">${data.message}</span>
+            <a href="${data.download_url}" download title="Download cleaned CSV">
+              <svg xmlns="http://www.w3.org/2000/svg" class="inline w-5 h-5 text-green-700 hover:text-green-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
+              </svg>
+            </a>
+          `;
+        } else {
+          document.getElementById('upload-info').innerText = "⚠️ Upload failed.";
+        }
+      })
+      .catch(err => {
+        document.getElementById('upload-info').innerText = "❌ Upload error.";
+      });
+    });
+  </script>
+</body>
+</html> {% endcomment %}
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>LLM Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body class="h-screen bg-gray-100 overflow-hidden">
+
+  <!-- Sidebar Toggle Button -->
+  <button id="toggleSidebarBtn" class="absolute top-4 left-2 z-20 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700">
+    ☰
+  </button>
+
+  <!-- Wrapper for Sidebar + Main Content -->
+  <div id="dashboardContainer" class="flex h-full transition-all duration-300 ease-in-out">
+
+    <!-- Sidebar -->
+    <div id="sidebar" class="w-1/4 bg-gray-800 text-white p-4 flex flex-col overflow-hidden transition-all duration-300 ease-in-out">
+      <h2 class="text-xl font-bold mb-4 pl-10">Data Assistant</h2>
+
+      <!-- CSV Upload -->
+      <label class="block mb-2">Upload CSV</label>
+      <input type="file" id="csv-file-input" accept=".csv" class="mb-2 w-full p-1 text-black">
+      <div id="upload-info" class="text-sm text-green-700 mb-4"></div>
+
+      <!-- Question Input -->
+      <form method="POST">
+        {% csrf_token %}
+        <label class="block mb-2">Enter your question</label>
+        <textarea id="user-query-box" name="user_query" class="w-full h-24 text-black p-1 mb-4" required></textarea>
+        <button type="submit" class="bg-blue-500 px-4 py-2 rounded hover:bg-blue-600">Submit</button>
+      </form>
+
+      <hr class="my-4"/>
+
+      <!-- Past Questions -->
+      <div class="flex flex-col flex-1 overflow-hidden">
+        <h3 class="text-lg font-semibold mb-2">Previous Questions</h3>
+        <div class="flex-1 overflow-y-auto min-h-0 pr-2">
+          <ul class="space-y-1">
+            {% for q in past_questions %}
+              <li class="text-sm text-blue-300 hover:text-blue-100 cursor-pointer clickable-question" data-question="{{ q|escape }}">
+                {{ q }}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="flex-1 p-6 overflow-y-scroll" id="mainContent">
+
+      <!-- Top Insight Tiles -->
+      {% if top_insights %}
+      <h2 class="text-xl font-semibold mb-4 text-gray-700">Top Insights</h2>
+      <div class="grid grid-cols-5 gap-4 mb-8">
+        {% for insight in top_insights %}
+        <div class="relative group bg-white rounded shadow p-4 text-center cursor-pointer">
+          <div class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">
+            {{ insight.description }}
+          </div>
+          <div class="text-sm text-gray-500">{{ insight.label }}</div>
+          <div class="text-xl font-bold text-gray-800 mt-1">{{ insight.value }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Middle Plots -->
+      {% if plot_images|length > 0 %}
+      <h2 class="text-xl font-semibold mb-4 text-gray-700">Visual Analysis</h2>
+      <div class="grid grid-cols-2 gap-4 mb-8">
+        {% if plot_images|length > 0 and plot_images.0 %}
+        <div id="plot-0" class="bg-white p-4 rounded shadow">
+          {{ plot_images.0|safe }}
+        </div>
+        {% endif %}
+        {% if plot_images|length > 1 and plot_images.1 %}
+        <div id="plot-1" class="bg-white p-4 rounded shadow">
+          {{ plot_images.1|safe }}
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <!-- Bottom: Plot 3 + Final Summary -->
+      {% if plot_images|length > 2 or final_summary %}
+      <div class="grid grid-cols-2 gap-4 mb-6">
+
+        <!-- Plot 3 -->
+        {% if plot_images|length > 2 and plot_images.2 %}
+        <div id="plot-2" class="bg-white p-4 rounded shadow">
+          {{ plot_images.2|safe }}
+        </div>
+        {% endif %}
+
+        <!-- Final Summary -->
+        {% if final_summary %}
+        <div class="bg-white p-4 rounded shadow">
+          <h3 class="text-lg font-semibold text-gray-800 mb-2">Final Summary</h3>
+          <p class="text-gray-800 text-sm italic mb-4">
+            {{ final_summary.final_summary }}
+          </p>
+
+          <div class="mb-3">
+            <h4 class="text-md font-semibold text-green-700 mb-1">Findings</h4>
+            <ul class="list-disc list-inside text-gray-700 text-sm">
+              {% for f in final_summary.findings %}
+              <li>{{ f }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+
+          <div>
+            <h4 class="text-md font-semibold text-red-700 mb-1">Anomalies</h4>
+            {% if final_summary.anomalies.0 == null %}
+            <p class="text-gray-500 text-sm">None</p>
+            {% else %}
+            <ul class="list-disc list-inside text-gray-700 text-sm">
+              {% for a in final_summary.anomalies %}
+              <li>{{ a }}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Sidebar Toggle Script + Plot Resize -->
+  <script>
+    const toggleBtn = document.getElementById("toggleSidebarBtn");
+    const sidebar = document.getElementById("sidebar");
+    
+    function resizeAllPlots() {
+      const ids = ['plot-0', 'plot-1', 'plot-2'];
+      ids.forEach(id => {
+        const plotDiv = document.getElementById(id)?.querySelector('.js-plotly-plot');
+        if (plotDiv) {
+          Plotly.Plots.resize(plotDiv);
+        }
+      });
+    }
+
+    document.getElementById("toggleSidebarBtn").addEventListener("click", () => {
+      const sidebar = document.getElementById("sidebar");
+      sidebar.classList.toggle("w-1/4");
+      sidebar.classList.toggle("w-0");
+      sidebar.classList.toggle("p-4");
+
+      setTimeout(() => {
+        requestAnimationFrame(resizeAllPlots);
+      }, 350); // Give layout time to settle
+    });
+    </script>
+
+
+  <!-- CSV Upload Script -->
+  <script>
+    document.getElementById('csv-file-input').addEventListener('change', function () {
+      const file = this.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append('csv_file', file);
+
+      fetch('/upload-csv/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}'
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.message) {
+          document.getElementById('upload-info').innerHTML = `
+            <span class="inline-block mr-2">${data.message}</span>
+            <a href="${data.download_url}" download title="Download cleaned CSV">
+              <svg xmlns="http://www.w3.org/2000/svg" class="inline w-5 h-5 text-green-700 hover:text-green-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
+              </svg>
+            </a>
+          `;
+        } else {
+          document.getElementById('upload-info').innerText = "⚠️ Upload failed.";
+        }
+      })
+      .catch(err => {
+        document.getElementById('upload-info').innerText = "❌ Upload error.";
+      });
+    });
+  </script>
+
+  <!-- Clickable Past Questions -->
+  <script>
+    document.querySelectorAll('.clickable-question').forEach(item => {
+      item.addEventListener('click', event => {
+        const questionText = event.target.getAttribute('data-question');
+        document.getElementById('user-query-box').value = questionText;
+      });
+    });
+  </script>
+
+</body>
+</html>
