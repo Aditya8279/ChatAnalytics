@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from .llm_pipeline import classification_agent, break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
+from .llm_pipeline import generate_greet_output, classification_agent, break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
 import pandas as pd
 import numpy as np
 import requests
@@ -243,7 +243,7 @@ def inject_plot_formatting(code: str, height: int = 300) -> str:
             # Insert formatting after first fig assignment
             modified_lines.append(
                 f"fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True, height={height}, "
-                f"xaxis=dict(showticklabels=False), yaxis=dict(showticklabels=False))"
+                f"xaxis=dict(showgrid=False, showticklabels=False), yaxis=dict(showgrid=False, showticklabels=False))"
             )
             modified_lines.append(
                 'plot_html = fig.to_html(full_html=False, include_plotlyjs=False, config={"displayModeBar": False, "responsive": True})'
@@ -294,7 +294,6 @@ def insert_user_question(sub_questions, user_question, analysis_info):
 
     sub_questions.insert(insert_index, user_question)
     return sub_questions
-
 
 
 @csrf_exempt
@@ -394,10 +393,10 @@ def dashboard_view(request):
         logging.info(f"=== Break down questions ===\n\n{sub_questions}")
 
         
-        updated_list = insert_user_question(sub_questions, user_question, analysis_info)
-        logging.info(f"=== Updated Break down questions list ===\n\n{updated_list}")
+        # updated_list = insert_user_question(sub_questions, user_question, analysis_info)
+        # logging.info(f"=== Updated Break down questions list ===\n\n{updated_list}")
 
-        sub_questions = updated_list
+        # sub_questions = updated_list
 
         summaries, plot_paths, filtered_data, q_title, filter_result, description_list = [], [], [], [None,None,None,None,None,None,None,None,None,None,None,None,None], [None,None,None,None,None,None,None,None,None,None,None,None, None], [None,None,None,None,None,None,None,None,None,None,None,None,None]
 
@@ -493,6 +492,11 @@ def dashboard_view(request):
                         description = generate_description(summary_prompt)
                         description_list[i] = description
                         filter_result[i] = result
+                    else:
+                        summary_prompt = f"Dataset: \n{result.to_markdown(index=False)}"
+                        description = generate_description(summary_prompt)
+                        # description_list[i] = description
+                        # filter_result[i] = result
 
                     # filter_result.append(result)
 
@@ -596,3 +600,126 @@ def dashboard_view(request):
         
     return render(request, 'dashboard.html', context)
     # return HttpResponse("<h1>Hello from Django!</h1>")
+
+
+@csrf_exempt
+def chatbot_view(request):
+    if request.method == 'POST':
+        try:
+            # Parse user message
+            data = json.loads(request.body)
+            user_input = data.get("message", "")
+
+            greeting_model_output = generate_greet_output(user_input)
+            greeting_model_output = json.loads(greeting_model_output)
+
+            if greeting_model_output["is_greeting"]==False:
+
+                # ✅ Load dataset from session
+                uploaded_json = request.session.get('uploaded_data')
+                if uploaded_json:
+                    df = pd.read_json(uploaded_json)
+                elif 'csv_data' in request.session:
+                    df = pd.read_json(request.session["csv_data"])
+                else:
+                    return JsonResponse({'reply': "No dataset found. Please upload a CSV first."})
+
+                df = df.applymap(remove_special_chars)
+                df = convert_string_numerics(df)
+                metadata = extract_metadata(df)
+
+                # ✅ Load and update chat history from session
+                chat_history = request.session.get("chat_history", [])
+                chat_history.append({"role": "user", "content": user_input})
+
+                # ✅ Keep only the last 5 interactions
+                recent_history = chat_history[-4:]
+
+                # ✅ Build conversation context
+                history_prompt = ""
+                for item in recent_history:
+                    prefix = "User:" if item["role"] == "user" else "Assistant:"
+                    history_prompt += f"{prefix} {item['content']}\n"
+
+                # ✅ Combine metadata, history, and latest question
+                python_prompt = f"""Here is the previous conversation history between the user and assistant: --- Chat History Start ---
+                                    {history_prompt.strip()}
+                                    --- Chat History End ---
+                                    Now, answer the current user question using the above history **if it's relevant**. Otherwise, answer based on the metadata below and the current question alone.
+                                    User Question: {user_input}
+
+                                    Metadata:
+                                    {metadata}
+                                    """
+
+                result = None
+                last_model2_error = ""
+
+                for attempt in range(5):
+                    try:
+                        retry_prompt_2 = (
+                            f"{python_prompt}\n\nPrevious Output error (if any): {last_model2_error}"
+                            if last_model2_error else python_prompt
+                        )
+
+                        logging.info(f"=== Chatbot TODO model input ===\n\n{python_prompt}")
+
+                        code_response = generate_python_code(retry_prompt_2)
+                        logging.info(f"=== Chatbot Python code output ===\n\n{code_response}")
+
+                        code_response = extract_json_from_response(code_response)
+                        python_code = fix_llm_code(code_response)
+
+                        local_vars = {"df": df.copy()}
+                        exec(python_code, {}, local_vars)
+                        result = local_vars.get("result")
+
+                        if result is not None:
+                            break
+                    except Exception as e:
+                        last_model2_error = python_code + str(e)
+
+                if not isinstance(result, (pd.DataFrame, pd.Series)):
+                    summary_prompt = f"""{history_prompt.strip()}
+                                        User Query: {user_input}
+                                        Output Value:
+                                        {result}
+                                        """
+                else:
+                    summary_prompt = f"""{history_prompt.strip()}
+                                        User Query: {user_input}
+                                        Dataset:
+                                        {result.to_markdown()}
+                                        """
+                    
+                logging.info(f"=== Chatbot TODO summary_prompt ===\n\n{summary_prompt}")
+
+                # summary_prompt += f"\n\nMetadata:\n{metadata}"
+                summary_result = generate_summary(summary_prompt)
+
+                # ✅ Add assistant reply to history
+                chat_history.append({"role": "assistant", "content": summary_result})
+                request.session["chat_history"] = chat_history
+
+                return JsonResponse({'reply': summary_result})
+            else:
+                return JsonResponse({'reply': greeting_model_output["greeting"]})
+
+
+        except Exception as e:
+            return JsonResponse({'reply': f"Error: {str(e)}"}, status=400)
+
+@csrf_exempt
+def upload_dataset(request):
+    if request.method == 'POST':
+        file = request.FILES.get('file')
+        if not file:
+            return JsonResponse({'status': 'No file uploaded.'}, status=400)
+
+        try:
+            df = pd.read_csv(file)
+            request.session['uploaded_data'] = df.to_json()
+            request.session.modified = True
+            return JsonResponse({'status': f'Dataset \"{file.name}\" uploaded successfully.'})
+        except Exception as e:
+            return JsonResponse({'status': f'Failed to upload: {str(e)}'}, status=400)

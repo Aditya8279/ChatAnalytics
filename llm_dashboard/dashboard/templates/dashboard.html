@@ -1,173 +1,3 @@
-{% comment %} <!DOCTYPE html>
-<html>
-<head>
-  <title>LLM Dashboard</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
-  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-</head>
-<body class="flex h-screen bg-gray-100">
-
-  <!-- Sidebar -->
-  <div class="w-1/4 bg-gray-800 text-white p-4 flex flex-col">
-    <h2 class="text-xl font-bold mb-4">Data Assistant</h2>
-
-    <!-- CSV Upload (AJAX) -->
-    <label class="block mb-2">Upload CSV</label>
-    <input type="file" id="csv-file-input" accept=".csv" class="mb-2 w-full p-1 text-black">
-    <div id="upload-info" class="text-sm text-green-700 mb-4"></div>
-
-    <!-- Question Input -->
-    <form method="POST">
-      {% csrf_token %}
-      <label class="block mb-2">Enter your question</label>
-      <textarea name="user_query" class="w-full h-24 text-black p-1 mb-4" required></textarea>
-
-      <button type="submit" class="bg-blue-500 px-4 py-2 rounded hover:bg-blue-600">Submit</button>
-    </form>
-
-    <hr class="my-4"/>
-
-    <!-- Past Questions -->
-    <div>
-      <h3 class="text-lg font-semibold mb-2">Previous Questions</h3>
-      <ul class="space-y-1">
-        {% for q in past_questions %}
-          <li class="text-sm">{{ q }}</li>
-        {% endfor %}
-      </ul>
-    </div>
-  </div>
-
-  <!-- Main Dashboard Content -->
-  <div class="w-3/4 p-6 overflow-y-scroll">
-
-    <!-- Top Insight Tiles -->
-    {% if top_insights %}
-    <h2 class="text-xl font-semibold mb-4 text-gray-700">Top Insights</h2>
-    <div class="grid grid-cols-5 gap-4 mb-8">
-      {% for insight in top_insights %}
-        <div class="relative group bg-white rounded shadow p-4 text-center cursor-pointer">
-          <!-- Tooltip on Hover -->
-          <div class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">
-            {{ insight.description }}
-          </div>
-
-          <!-- Tile Content -->
-          <div class="text-sm text-gray-500">{{ insight.label }}</div>
-          <div class="text-xl font-bold text-gray-800 mt-1">{{ insight.value }}</div>
-        </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-
-    <!-- Middle: Two Plots Side-by-Side -->
-    {% if plot_images|length > 0 %}
-    <h2 class="text-xl font-semibold mb-4 text-gray-700">Visual Analysis</h2>
-    <div class="grid grid-cols-2 gap-4 mb-8">
-      {% if plot_images.0 %}
-        <div class="bg-white p-4 rounded shadow">
-          {{ plot_images.0|safe }}
-        </div>
-      {% endif %}
-      {% if plot_images.1 %}
-        <div class="bg-white p-4 rounded shadow">
-          {{ plot_images.1|safe }}
-        </div>
-      {% endif %}
-    </div>
-    {% endif %}
-
-    <!-- Bottom: Plot 3 and Summary Side-by-Side -->
-    {% if plot_images|length > 2 or final_summary %}
-    <div class="grid grid-cols-2 gap-4 mb-6">
-
-      <!-- Plot 3 -->
-      {% if plot_images|length > 2 %}
-      <div class="bg-white p-4 rounded shadow">
-        {{ plot_images.2|safe }}
-      </div>
-      {% endif %}
-
-      <!-- Final Summary -->
-      {% if final_summary %}
-      <div class="bg-white p-4 rounded shadow">
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">Final Summary</h3>
-
-        <!-- One-liner final summary -->
-        <p class="text-gray-800 text-sm italic mb-4">
-          {{ final_summary.final_summary }}
-        </p>
-
-        <!-- Findings -->
-        <div class="mb-3">
-          <h4 class="text-md font-semibold text-green-700 mb-1">Findings</h4>
-          <ul class="list-disc list-inside text-gray-700 text-sm">
-            {% for f in final_summary.findings %}
-              <li>{{ f }}</li>
-            {% endfor %}
-          </ul>
-        </div>
-
-        <!-- Anomalies -->
-        <div>
-          <h4 class="text-md font-semibold text-red-700 mb-1">Anomalies</h4>
-          {% if final_summary.anomalies.0 == None %}
-            <p class="text-gray-500 text-sm">None</p>
-          {% else %}
-            <ul class="list-disc list-inside text-gray-700 text-sm">
-              {% for a in final_summary.anomalies %}
-                <li>{{ a }}</li>
-              {% endfor %}
-            </ul>
-          {% endif %}
-        </div>
-      </div>
-      {% endif %}
-
-    </div>
-    {% endif %}
-
-  </div>
-
-  <!-- AJAX Upload Script -->
-  <script>
-    document.getElementById('csv-file-input').addEventListener('change', function () {
-      const file = this.files[0];
-      if (!file) return;
-
-      const formData = new FormData();
-      formData.append('csv_file', file);
-
-      fetch('/upload-csv/', {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'X-CSRFToken': '{{ csrf_token }}'
-        }
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.message) {
-          document.getElementById('upload-info').innerHTML = `
-            <span class="inline-block mr-2">${data.message}</span>
-            <a href="${data.download_url}" download title="Download cleaned CSV">
-              <svg xmlns="http://www.w3.org/2000/svg" class="inline w-5 h-5 text-green-700 hover:text-green-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
-              </svg>
-            </a>
-          `;
-        } else {
-          document.getElementById('upload-info').innerText = "⚠️ Upload failed.";
-        }
-      })
-      .catch(err => {
-        document.getElementById('upload-info').innerText = "❌ Upload error.";
-      });
-    });
-  </script>
-</body>
-</html> {% endcomment %}
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -301,6 +131,165 @@
       {% endif %}
     </div>
   </div>
+
+  <!-- Chatbot Floating Button + Popup -->
+  <div id="chatbot-container" class="fixed bottom-4 right-4 z-50">
+    <!-- Collapsed Button -->
+    <button id="chatbot-toggle" class="bg-blue-600 text-white p-3 rounded-full shadow-lg hover:bg-blue-700">
+      💬
+    </button>
+
+    <!-- Expanded Chatbot Box -->
+    <div id="chatbot-box" class="hidden mt-2 w-80 h-96 bg-white border border-gray-300 rounded-lg shadow-lg flex flex-col">
+      <!-- Header -->
+      <div class="bg-blue-600 text-white p-3 rounded-t-lg flex justify-between items-center">
+        <span class="font-semibold">Chat with Assistant</span>
+        <button id="chatbot-close" class="text-white hover:text-gray-200">✕</button>
+      </div>
+
+      <!-- Chat Area -->
+      <div id="chat-messages" class="flex-1 p-3 overflow-y-auto text-sm space-y-2">
+        <div class="text-gray-600 italic">Ask me anything about your data...</div>
+      </div>
+
+      <form id="chatbot-form" class="p-3 border-t border-gray-200 flex gap-2 items-center">
+        <!-- Upload Button -->
+        <label for="file-upload" class="cursor-pointer text-gray-500 hover:text-blue-600">
+          <span class="text-2xl">＋</span>
+          <input id="file-upload" type="file" class="hidden" accept=".csv" />
+        </label>
+
+        <!-- Text Input -->
+        <input type="text" id="chatbot-input" placeholder="Type your question..." class="flex-1 p-2 border rounded text-sm focus:outline-none" required>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const chatbotToggle = document.getElementById('chatbot-toggle');
+    const chatbotBox = document.getElementById('chatbot-box');
+    const chatbotClose = document.getElementById('chatbot-close');
+    const chatbotForm = document.getElementById('chatbot-form');
+    const chatbotInput = document.getElementById('chatbot-input');
+    const chatMessages = document.getElementById('chat-messages');
+    const fileUpload = document.getElementById('file-upload');
+
+    // Toggle chatbot popup
+    chatbotToggle.addEventListener('click', () => {
+      chatbotBox.classList.toggle('hidden');
+    });
+
+    // Close chatbot popup
+    chatbotClose.addEventListener('click', () => {
+      chatbotBox.classList.add('hidden');
+    });
+
+    // Handle message submission
+    chatbotForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const userInput = chatbotInput.value.trim();
+      if (!userInput) return;
+
+      // Append user message
+      const userMsg = document.createElement('div');
+      userMsg.className = 'text-right text-blue-800';
+      userMsg.innerText = userInput;
+      chatMessages.appendChild(userMsg);
+
+      chatbotInput.value = '';
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+
+      // Show loading dots
+      const loadingMsg = document.createElement('div');
+      loadingMsg.className = 'text-left text-gray-500 italic';
+      loadingMsg.id = 'loading-dots';
+      loadingMsg.innerText = 'Assistant is typing';
+      chatMessages.appendChild(loadingMsg);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+
+      let dotCount = 0;
+      const dotInterval = setInterval(() => {
+        dotCount = (dotCount + 1) % 4;
+        loadingMsg.innerText = 'Assistant is typing' + '.'.repeat(dotCount);
+      }, 500);
+
+      try {
+        const response = await fetch('/chatbot/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+          },
+          body: JSON.stringify({ message: userInput })
+        });
+
+        const data = await response.json();
+
+        // Remove loading dots
+        clearInterval(dotInterval);
+        loadingMsg.remove();
+
+        // Append bot response
+        const botMsg = document.createElement('div');
+        botMsg.className = 'text-left text-gray-700';
+        botMsg.innerText = data.reply || 'Error processing response.';
+        chatMessages.appendChild(botMsg);
+      } catch (error) {
+        clearInterval(dotInterval);
+        loadingMsg.remove();
+
+        const errorMsg = document.createElement('div');
+        errorMsg.className = 'text-left text-red-600';
+        errorMsg.innerText = 'Failed to get response.';
+        chatMessages.appendChild(errorMsg);
+      }
+
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    });
+
+    // ✅ Handle file upload
+    fileUpload.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // Upload feedback
+      const uploadingMsg = document.createElement('div');
+      uploadingMsg.className = 'text-left text-gray-600 italic';
+      uploadingMsg.innerText = `Uploading "${file.name}"...`;
+      chatMessages.appendChild(uploadingMsg);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+
+      try {
+        const response = await fetch('/upload-dataset/', {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': '{{ csrf_token }}'
+          },
+          body: formData
+        });
+
+        const result = await response.json();
+
+        const successMsg = document.createElement('div');
+        successMsg.className = 'text-left text-green-700';
+        successMsg.innerText = result.status || 'Upload completed.';
+        chatMessages.appendChild(successMsg);
+      } catch (error) {
+        const errorMsg = document.createElement('div');
+        errorMsg.className = 'text-left text-red-600';
+        errorMsg.innerText = 'Failed to upload the dataset.';
+        chatMessages.appendChild(errorMsg);
+      }
+
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    });
+  </script>
+
+
+
 
   <!-- Sidebar Toggle Script + Plot Resize -->
   <script>
