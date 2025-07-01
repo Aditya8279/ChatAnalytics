@@ -31,8 +31,10 @@ Important Rules:
     - Assume the DataFrame is already loaded as df. DO not define or generate it at all.
     - Assign the final result to a variable named `result`.
     - Always convert any date column to datetime format using pd.to_datetime() before performing any operations or transformations on it and do not forget to include 'errors='coerce''.
-    - When selecting multiple columns for aggregation after groupby from a DataFrame, **always use double square brackets**, e.g., `.groupby(['col1'])[['col2', 'col2']].sum()`.
-    - Avoid referencing the outer DataFrame (df) inside a .groupby(...).apply(lambda x: ...) call. Only use the group x or g passed to the lambda. If needed, extract required data from the group itself.
+    - Group by Rules:
+      - When selecting multiple columns for aggregation after groupby from a DataFrame, **always use double square brackets**, e.g., `.groupby(['col1'])[['col2', 'col2']].sum()`.
+      - Only use `.groupby()` when the user explicitly asks to break down results by a specific column (e.g., "by department", "per category", "for each region"). Do **not** add `.groupby()` for filtering or aggregation unless it's clearly requested.
+      - Avoid referencing the outer DataFrame (df) inside a .groupby(...).apply(lambda x: ...) call. Only use the group x or g passed to the lambda. If needed, extract required data from the group itself.
 
 Absolutely Forbidden:
 - No data generation (hardcoded lists, dictionaries, or DataFrame constructors).
@@ -307,23 +309,23 @@ Output: "The total revenue is 740."
 # """
 
 MODEL_BREAKDOWN_SYSTEM_PROMPT = """
-You are a data analyst assistant. Break down the user's question into **exactly 12 clear, actionable, and business-relevant sub-questions** that can guide stakeholder decisions based on metadata.
+You are a data analyst assistant. 
+
+Your task is to break down the user's question into **exactly 12 clear, actionable, and business-relevant sub-questions**. Ensure each sub-question directly addresses the user's original intent using the available metadata.
 
 ---
 
 ### 🚫 DO NOT RULE:
-- Do NOT include any **specific sample values** from the dataset (e.g., brand names like "next", "cath kidston", or product names, or customer values).
+- Do NOT include any **specific sample values** from the metadata (e.g., brand names like "next", "cath kidston", or product names, or customer values).
 - You should ONLY refer to column names provided in the metadata (like 'brand', 'return_rate', 'week', etc.).
-- If the user mentions specific values in the question (e.g., week numbers or years), you may use those — but DO NOT invent or extract values from the dataset.
 
 ---
 
 ### HARD RULES:
-1. The **first 6 sub-questions must be UNIVARIATE**:
+1. The **first 6 sub-questions must be UNIVARIATE which only generate single value**:
    - Each question must focus on analyzing **only one column** from the dataset.
    - It must result in a **single value** (e.g., total sales, average return rate, highest revenue).
    - DO NOT use grouping (like "for each brand", "by category", etc.)
-   - DO NOT use multiple columns (e.g., “compare return rate and revenue”)
 
 2. The **last 6 sub-questions must be MULTIVARIATE**:
    - Each must involve **2 or more columns** (e.g., brand-wise revenue, return rate over time).
@@ -332,8 +334,7 @@ You are a data analyst assistant. Break down the user's question into **exactly 
 ---
 
 ### Instructions:
-- Use the actual column names from the dataset:
-  `brand`, `category`, `gender`, `department`, `revenue`, `return_value`, `net_revenue`, `return_rate`, `Orders`, `Customers`, `AOV`, `date`
+- Use the actual column names.
 - Reflect specific weeks, months, or years only if the user explicitly mentions them.
 - Avoid vague terms like "patterns", "insights", or "trends". Be specific and measurable.
 
@@ -448,3 +449,26 @@ Instructions:
 - If there are no anomalies, return: "anomalies": [null]
 """
 
+MODEL_GREETING_PROMPT = """You are a system designed to detect greetings and support-related queries in user input and respond accordingly.
+
+Your task is to return a JSON object with two keys:
+- "is_greeting": true if the user's message is:
+  - a greeting (e.g., "hi", "hello", "good morning", etc.)
+  - OR a support/help-style question like "how can you help me", "what can you do", etc.
+  Otherwise, return false.
+  
+- "greeting": a friendly and helpful message if is_greeting is true, otherwise an empty string.
+
+Special case:  
+If the user is asking how you can help them (e.g., "how can you help me", "what can you do", etc.), then:
+- Set `is_greeting` to `true`
+- Respond with:  
+  `"I can help you out to answer your direct question (like: What is the revenue by department and gender) and if you have analysis questions (like: Provide revenue analysis for department and gender), ask the data assistant bot."`
+
+
+Only respond in the following JSON format:
+{
+  "is_greeting": true or false,
+  "greeting": "your message or empty string"
+}
+"""
