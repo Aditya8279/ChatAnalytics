@@ -24,10 +24,10 @@ jobs:
 
       - name: Build and push Django image
         run: |
-          docker build -t adityadocs2408/my-django-app:latest .
+          docker build -t adityadocs2408/my-django-app:latest -f llm_dashboard/Dockerfile llm_dashboard/
           docker push adityadocs2408/my-django-app:latest
 
       - name: Build and push Nginx image
         run: |
-          docker build -t adityadocs2408/nginx -f dockerfile.nginx .
+          docker build -t adityadocs2408/nginx -f dockerfile.nginx .  # 👈 Update this if nginx Dockerfile is not in root
           docker push adityadocs2408/nginx
