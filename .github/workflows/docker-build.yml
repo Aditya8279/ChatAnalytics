@@ -29,5 +29,5 @@ jobs:
 
       - name: Build and push Nginx image
         run: |
-          docker build -t adityadocs2408/nginx -f dockerfile.nginx .  # 👈 Update this if nginx Dockerfile is not in root
+          docker build -t adityadocs2408/nginx -f llm_dashboard/dockerfile.nginx llm_dashboard/
           docker push adityadocs2408/nginx
