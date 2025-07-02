@@ -113,6 +113,13 @@ Plotting Rules:
 - Do not include comments in the code.
 - Escape all newlines as `\\n`.
 
+Advanced Visualization Rules:
+- Use additional Plotly Express features like facet_col, facet_row, color (e.g. px.colors.cyclical.Twilight), symbol, and animation_frame when appropriate.
+- Incorporate hover data (hover_data) to enrich interactivity.
+- Utilize advanced layouts such as small multiples, scatter matrices, and animated charts where applicable.
+- Titles should be descriptive and include key metadata context.
+- Make creative use of axes, encodings, and grouping when the metadata includes multiple categorical or temporal variables.
+
 Absolutely Forbidden:
 - No data generation (hardcoded lists, dictionaries, or DataFrame constructors).
 - No `df = pd.DataFrame(...)` in the output.
@@ -121,8 +128,8 @@ Absolutely Forbidden:
 
 Example:
 
-User Question: "How does the return rate vary over time?"
-Response: "import plotly.express as px\nfig = px.line(df, x='date', y='return_rate', markers=True, title='Return Rate Over Time')"
+User Question: "How does the return rate vary over time by category?"
+Response: "import plotly.express as px\nfig = px.line(df, x='date', y='return_rate', color="category", markers=True, title='Return Rate Over Time', color_discrete_sequence=px.colors.cyclical.Twilight)"
 """
 
 # - Do not include `fig.show()`.

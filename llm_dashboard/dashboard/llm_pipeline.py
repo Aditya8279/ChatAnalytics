@@ -32,7 +32,7 @@ def generate_final_summary(updated_user_prompt):
     return query_llm(updated_user_prompt, MODEL_FINAL_SUMMARY_PROMPT)
 
 def generate_greet_output(updated_user_prompt):
-    return query_llm(updated_user_prompt, MODEL_GREETING_PROMPT)
+    return query_llm(updated_user_prompt, MODEL_GREETING_PROMPT,0.8,"gpt-4-turbo")
 
 # def generate_final_result(updated_user_prompt):
 #     return query_llm(updated_user_prompt, MODEL_FINAL_SUMMARY_PROMPT)

@@ -7,6 +7,8 @@ import time
 import json
 import openai
 
+import plotly.express as px
+
 import difflib
 import re
 
@@ -239,11 +241,17 @@ def inject_plot_formatting(code: str, height: int = 300) -> str:
         
         modified_lines.append(line)
 
+        # Twilight color palette
+        twilight_colors = px.colors.cyclical.Twilight
+
         if not fig_assigned and stripped.startswith("fig = "):
             # Insert formatting after first fig assignment
             modified_lines.append(
                 f"fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True, height={height}, "
-                f"xaxis=dict(showgrid=False, showticklabels=False), yaxis=dict(showgrid=False, showticklabels=False))"
+                f"plot_bgcolor='white', paper_bgcolor='white', "
+                f"xaxis=dict(showgrid=False, showticklabels=False), "
+                f"yaxis=dict(showgrid=True, showticklabels=True, gridcolor='lightgrey'), "
+                f"colorway={twilight_colors})"
             )
             modified_lines.append(
                 'plot_html = fig.to_html(full_html=False, include_plotlyjs=False, config={"displayModeBar": False, "responsive": True})'
@@ -458,10 +466,16 @@ def dashboard_view(request):
                 #     result = pd.DataFrame(result).reset_index()
 
                 result = safe_reset_index(result)
-                index_cols = ['index', 'Unnamed: 0']
-                for col in index_cols:
-                    if col in result.columns:
-                        result = result.drop(columns=col)
+                # index_cols = ['index', 'Unnamed: 0']
+                # for col in index_cols:
+                #     if col in result.columns:
+                #         result = result.drop(columns=col)
+
+                from pandas.api.types import is_period_dtype
+
+                for col in result.columns:
+                    if is_period_dtype(result[col]):
+                        result[col] = result[col].astype(str)
 
                 result_head = result.head(14)
 
@@ -518,6 +532,7 @@ def dashboard_view(request):
                         logging.info(f"=== MODEL 3 Dashboard Plot Code (Q{i+1}, Attempt {attempt+1}) ===\n{viz_code_response}\n\n")
                         viz_code_response = extract_json_from_response(viz_code_response)
                         viz_code_response = inject_plot_formatting(viz_code_response, height=280)
+                        logging.info(f"=== MODEL 3 Dashboard local_vars access (Q{i+1}, Attempt {attempt+1}) ===\n{local_vars}\n\n")
                         exec(viz_code_response, {}, local_vars)
 
                         # Extract HTML from variable (assume model always uses `plot_html`)
