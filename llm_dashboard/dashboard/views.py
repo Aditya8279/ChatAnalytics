@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from .llm_pipeline import generate_greet_output, classification_agent, break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
 import pandas as pd
+from pandas.api.types import is_period_dtype
 import numpy as np
 import requests
 import time
@@ -250,8 +251,8 @@ def inject_plot_formatting(code: str, height: int = 300) -> str:
                 f"fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True, height={height}, "
                 f"plot_bgcolor='white', paper_bgcolor='white', "
                 f"xaxis=dict(showgrid=False, showticklabels=False), "
-                f"yaxis=dict(showgrid=True, showticklabels=True, gridcolor='lightgrey'), "
-                f"colorway={twilight_colors})"
+                f"yaxis=dict(showgrid=True, showticklabels=True, gridcolor='lightgrey'))"
+                # f"colorway={twilight_colors})"
             )
             modified_lines.append(
                 'plot_html = fig.to_html(full_html=False, include_plotlyjs=False, config={"displayModeBar": False, "responsive": True})'
@@ -437,6 +438,8 @@ def dashboard_view(request):
                     exec(python_code, {}, local_vars)
                     result = local_vars.get("result")
 
+                    result = safe_reset_index(result)
+
                     # filtered_data[i] = result
                     if result is not None:
                         break
@@ -465,13 +468,11 @@ def dashboard_view(request):
                 # else:
                 #     result = pd.DataFrame(result).reset_index()
 
-                result = safe_reset_index(result)
+                # result = safe_reset_index(result)
                 # index_cols = ['index', 'Unnamed: 0']
                 # for col in index_cols:
                 #     if col in result.columns:
                 #         result = result.drop(columns=col)
-
-                from pandas.api.types import is_period_dtype
 
                 for col in result.columns:
                     if is_period_dtype(result[col]):

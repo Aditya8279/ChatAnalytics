@@ -4,11 +4,26 @@
   <title>LLM Dashboard</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <style>
+    /* When sidebar is collapsed, shift title right */
+    #dashboardContainer.sidebar-collapsed #dashboardTitle {
+      padding-left: 2.5rem; /* Tailwind's pl-10 ≈ 2.5rem */
+    }
+    #timerModal {
+      backdrop-filter: blur(2px);
+      transition: all 0.3s ease;
+    }
+  </style>
 </head>
 <body class="h-screen bg-gray-100 overflow-hidden">
 
+  <!-- Add padding to your page content to avoid being hidden under fixed bar -->
+  {% comment %} <div class="pt-20"></div> {% endcomment %}
+
+
   <!-- Sidebar Toggle Button -->
-  <button id="toggleSidebarBtn" class="absolute top-4 left-2 z-20 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700">
+  <button id="toggleSidebarBtn" class="absolute top-4 left-2 z-50 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700">
     ☰
   </button>
 
@@ -29,7 +44,7 @@
         {% csrf_token %}
         <label class="block mb-2">Enter your question</label>
         <textarea id="user-query-box" name="user_query" class="w-full h-24 text-black p-1 mb-4" required></textarea>
-        <button type="submit" class="bg-blue-500 px-4 py-2 rounded hover:bg-blue-600">Submit</button>
+        <button id="submitBtn" type="submit" class="bg-blue-500 px-4 py-2 rounded hover:bg-blue-600">Submit</button>
       </form>
 
       <hr class="my-4"/>
@@ -50,93 +65,127 @@
     </div>
 
     <!-- Main Content -->
-    <div class="flex-1 p-6 overflow-y-scroll" id="mainContent">
+    <div id="mainContent" class="relative flex-1 pt-0 px-6 pb-6 overflow-y-scroll">
 
-      <!-- Top Insight Tiles -->
-      {% if top_insights %}
-        <h2 class="text-xl font-semibold mb-4 text-gray-700">Top Insights</h2>
-        <div class="grid grid-cols-5 gap-4 mb-8">
-          {% for insight in top_insights %}
-          <div class="relative group bg-white rounded-2xl shadow-md p-4 text-center cursor-pointer">
+      <!-- Spinner inside mainContent -->
+      <div id="spinnerWrapper" class="hidden absolute inset-0 bg-white bg-opacity-70 flex items-center justify-center z-30">
+        <svg class="animate-spin h-16 w-16 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+        </svg>
+      </div>
 
-            <!-- Tooltip -->
-            <div class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">
-              {{ insight.description }}
+
+      <!-- ✅ Top Bar is now inside of main content -->
+      <div id="topBar" class="sticky top-0 z-30 bg-white shadow-md h-16 flex items-center justify-between -mx-6 px-6 mb-6">
+        <div class="text-lg font-bold transition-all duration-300" id="dashboardTitle">Dashboard</div>
+        <div class="space-x-4">
+          <button id="downloadReportBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Download Report</button>
+          {% comment %} <button id="anomaliesBtn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Anomalies</button> {% endcomment %}
+          <button id="autoRunBtn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Set Auto Run Timer</button>
+        </div>
+      </div>
+
+      {% if not top_insights and not plot_images|length > 0 %}
+      <!-- Initial welcome message -->
+      <div id="welcomeMessage" class="h-full flex flex-col items-center justify-center text-center text-gray-600 space-y-4">
+        <h1 class="text-2xl font-bold text-gray-800">Welcome to your Data Assistant Dashboard</h1>
+        <p class="max-w-xl text-base">
+          This analytical assistant helps you explore, visualize, and summarize your data effortlessly.<br />
+          Upload your dataset and ask any question to begin.
+        </p>
+      </div>
+      {% endif %}
+
+
+      <!-- ✅ REPORT SECTION TO CAPTURE -->
+      <div id="reportSection">
+        <!-- Top Insight Tiles -->
+        {% if top_insights %}
+          {% comment %} <h2 class="text-xl font-semibold mb-4 text-gray-700">Top Insights</h2> {% endcomment %}
+          <div class="grid grid-cols-5 gap-4 mb-8">
+            {% for insight in top_insights %}
+            <div class="relative group bg-white rounded-2xl shadow-md p-4 text-center cursor-pointer">
+
+              <!-- Tooltip -->
+              <div class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">
+                {{ insight.description }}
+              </div>
+
+              <!-- Label -->
+              <div class="text-sm text-gray-500 z-10 relative">{{ insight.label }}</div>
+
+              <!-- Value -->
+              <div class="text-xl font-bold text-gray-800 mt-1 z-10 relative">{{ insight.value }}</div>
+
+            </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+
+        <!-- Middle Plots -->
+        {% if plot_images|length > 0 %}
+        {% comment %} <h2 class="text-xl font-semibold mb-4 text-gray-700">Visual Analysis</h2> {% endcomment %}
+        <div class="grid grid-cols-2 gap-4 mb-8">
+          {% if plot_images|length > 0 and plot_images.0 %}
+          <div id="plot-0" class="bg-white p-4 rounded shadow">
+            {{ plot_images.0|safe }}
+          </div>
+          {% endif %}
+          {% if plot_images|length > 1 and plot_images.1 %}
+          <div id="plot-1" class="bg-white p-4 rounded shadow">
+            {{ plot_images.1|safe }}
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Bottom: Plot 3 + Final Summary -->
+        {% if plot_images|length > 2 or final_summary %}
+        <div class="grid grid-cols-2 gap-4 mb-6">
+
+          <!-- Plot 3 -->
+          {% if plot_images|length > 2 and plot_images.2 %}
+          <div id="plot-2" class="bg-white p-4 rounded shadow">
+            {{ plot_images.2|safe }}
+          </div>
+          {% endif %}
+
+          <!-- Final Summary -->
+          {% if final_summary %}
+          <div class="bg-white p-4 rounded shadow">
+            <h3 class="text-lg font-semibold text-gray-800 mb-2">Final Summary</h3>
+            <p class="text-gray-800 text-sm italic mb-4">
+              {{ final_summary.final_summary }}
+            </p>
+
+            <div class="mb-3">
+              <h4 class="text-md font-semibold text-green-700 mb-1">Findings</h4>
+              <ul class="list-disc list-inside text-gray-700 text-sm">
+                {% for f in final_summary.findings %}
+                <li>{{ f }}</li>
+                {% endfor %}
+              </ul>
             </div>
 
-            <!-- Label -->
-            <div class="text-sm text-gray-500 z-10 relative">{{ insight.label }}</div>
-
-            <!-- Value -->
-            <div class="text-xl font-bold text-gray-800 mt-1 z-10 relative">{{ insight.value }}</div>
-
+            <div>
+              <h4 class="text-md font-semibold text-red-700 mb-1">Anomalies</h4>
+              {% if final_summary.anomalies.0 == null %}
+              <p class="text-gray-500 text-sm">None</p>
+              {% else %}
+              <ul class="list-disc list-inside text-gray-700 text-sm">
+                {% for a in final_summary.anomalies %}
+                <li>{{ a }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+            </div>
           </div>
-          {% endfor %}
-        </div>
-      {% endif %}
-
-
-      <!-- Middle Plots -->
-      {% if plot_images|length > 0 %}
-      <h2 class="text-xl font-semibold mb-4 text-gray-700">Visual Analysis</h2>
-      <div class="grid grid-cols-2 gap-4 mb-8">
-        {% if plot_images|length > 0 and plot_images.0 %}
-        <div id="plot-0" class="bg-white p-4 rounded shadow">
-          {{ plot_images.0|safe }}
-        </div>
-        {% endif %}
-        {% if plot_images|length > 1 and plot_images.1 %}
-        <div id="plot-1" class="bg-white p-4 rounded shadow">
-          {{ plot_images.1|safe }}
+          {% endif %}
         </div>
         {% endif %}
       </div>
-      {% endif %}
-
-      <!-- Bottom: Plot 3 + Final Summary -->
-      {% if plot_images|length > 2 or final_summary %}
-      <div class="grid grid-cols-2 gap-4 mb-6">
-
-        <!-- Plot 3 -->
-        {% if plot_images|length > 2 and plot_images.2 %}
-        <div id="plot-2" class="bg-white p-4 rounded shadow">
-          {{ plot_images.2|safe }}
-        </div>
-        {% endif %}
-
-        <!-- Final Summary -->
-        {% if final_summary %}
-        <div class="bg-white p-4 rounded shadow">
-          <h3 class="text-lg font-semibold text-gray-800 mb-2">Final Summary</h3>
-          <p class="text-gray-800 text-sm italic mb-4">
-            {{ final_summary.final_summary }}
-          </p>
-
-          <div class="mb-3">
-            <h4 class="text-md font-semibold text-green-700 mb-1">Findings</h4>
-            <ul class="list-disc list-inside text-gray-700 text-sm">
-              {% for f in final_summary.findings %}
-              <li>{{ f }}</li>
-              {% endfor %}
-            </ul>
-          </div>
-
-          <div>
-            <h4 class="text-md font-semibold text-red-700 mb-1">Anomalies</h4>
-            {% if final_summary.anomalies.0 == null %}
-            <p class="text-gray-500 text-sm">None</p>
-            {% else %}
-            <ul class="list-disc list-inside text-gray-700 text-sm">
-              {% for a in final_summary.anomalies %}
-              <li>{{ a }}</li>
-              {% endfor %}
-            </ul>
-            {% endif %}
-          </div>
-        </div>
-        {% endif %}
-      </div>
-      {% endif %}
     </div>
   </div>
 
@@ -172,6 +221,55 @@
       </form>
     </div>
   </div>
+
+  <!-- Place this just before </body> -->
+  <div id="timerModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm">
+      <h2 class="text-lg font-semibold mb-4">Set Auto Run Timer</h2>
+      <label class="block mb-2 text-sm font-medium">Frequency:</label>
+      <select id="frequency" class="w-full border rounded p-2 mb-4">
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+      </select>
+      <label class="block mb-2 text-sm font-medium">Time:</label>
+      <input type="time" id="runTime" class="w-full border rounded p-2 mb-4">
+      <div class="flex justify-end">
+        <button class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600" onclick="saveTimer()">Save</button>
+        <button class="ml-2 px-4 py-2 bg-gray-400 text-white rounded hover:bg-gray-500" onclick="closeTimer()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Open modal
+    document.getElementById('autoRunBtn').addEventListener('click', () => {
+      document.getElementById('timerModal').classList.remove('hidden');
+    });
+
+    // Close modal
+    function closeTimer() {
+      document.getElementById('timerModal').classList.add('hidden');
+    }
+
+    // Save selected schedule
+    function saveTimer() {
+      const frequency = document.getElementById('frequency').value;
+      const time = document.getElementById('runTime').value;
+
+      if (!time) {
+        alert("Please select a time.");
+        return;
+      }
+
+      alert(`✅ Auto run scheduled: ${frequency} at ${time}`);
+      closeTimer();
+
+      // TODO: send data to backend via fetch/AJAX if needed
+    }
+  </script>
+
+
 
   <script>
     const chatbotToggle = document.getElementById('chatbot-toggle');
@@ -298,11 +396,44 @@
 
 
 
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const downloadBtn = document.getElementById('downloadReportBtn');
+      if (downloadBtn) {
+        downloadBtn.addEventListener('click', function () {
+          const reportSection = document.getElementById('reportSection');
+
+          // Optional: Show spinner if needed
+          const spinner = document.getElementById('spinnerWrapper');
+          if (spinner) spinner.classList.remove('hidden');
+
+          // Wait a moment to ensure layout settles
+          setTimeout(() => {
+            html2canvas(reportSection, {
+              scale: 2,
+              useCORS: true
+            }).then(canvas => {
+              // Hide spinner
+              if (spinner) spinner.classList.add('hidden');
+
+              // Trigger PNG download
+              const link = document.createElement('a');
+              link.download = 'dashboard-report.png';
+              link.href = canvas.toDataURL('image/png');
+              link.click();
+            });
+          }, 300); // slight delay for layout
+        });
+      }
+    });
+  </script>
+
 
   <!-- Sidebar Toggle Script + Plot Resize -->
   <script>
     const toggleBtn = document.getElementById("toggleSidebarBtn");
     const sidebar = document.getElementById("sidebar");
+    const container = document.getElementById('dashboardContainer');
     
     function resizeAllPlots() {
       const ids = ['plot-0', 'plot-1', 'plot-2'];
@@ -319,6 +450,9 @@
       sidebar.classList.toggle("w-1/4");
       sidebar.classList.toggle("w-0");
       sidebar.classList.toggle("p-4");
+
+      // ✅ Add or remove the "sidebar-collapsed" class
+      container.classList.toggle("sidebar-collapsed");
 
       setTimeout(() => {
         requestAnimationFrame(resizeAllPlots);
@@ -373,6 +507,68 @@
       });
     });
   </script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const submitBtn = document.getElementById('submitBtn');
+      if (submitBtn) {
+        submitBtn.addEventListener('click', function () {
+          // Hide welcome message
+          const welcome = document.getElementById('welcomeMessage');
+          if (welcome) welcome.style.display = 'none';
+
+          // Show spinner
+          const spinner = document.getElementById('spinnerWrapper');
+          if (spinner) spinner.classList.remove('hidden');
+        });
+      }
+    });
+  </script>
+
+
+
+
+
+
+
+
+  <script>
+    const toggleSidebarBtn = document.getElementById("toggleSidebarBtn");
+    const sidebar = document.getElementById("sidebar");  // ID of your sidebar div
+    const topBar = document.getElementById("topBar");
+
+    let sidebarExpanded = true;
+
+    toggleSidebarBtn.addEventListener("click", () => {
+      sidebarExpanded = !sidebarExpanded;
+
+      // Sidebar toggle classes
+      if (sidebarExpanded) {
+        sidebar.classList.remove("w-16");
+        sidebar.classList.add("w-64");
+
+        topBar.classList.remove("ml-16");
+        topBar.classList.add("ml-64");
+      } else {
+        sidebar.classList.remove("w-64");
+        sidebar.classList.add("w-16");
+
+        topBar.classList.remove("ml-64");
+        topBar.classList.add("ml-16");
+      }
+    });
+
+    // Set initial state on page load
+    window.addEventListener("DOMContentLoaded", () => {
+      if (sidebar.classList.contains("w-64")) {
+        topBar.classList.add("ml-64");
+      } else {
+        topBar.classList.add("ml-16");
+      }
+    });
+  </script>
+
+
 
 </body>
 </html>
