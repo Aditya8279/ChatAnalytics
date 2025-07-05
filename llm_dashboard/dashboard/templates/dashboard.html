@@ -34,17 +34,33 @@
     <div id="sidebar" class="w-1/4 bg-gray-800 text-white p-4 flex flex-col overflow-hidden transition-all duration-300 ease-in-out">
       <h2 class="text-xl font-bold mb-4 pl-10">Data Assistant</h2>
 
-      <!-- CSV Upload -->
-      <label class="block mb-2">Upload CSV</label>
-      <input type="file" id="csv-file-input" accept=".csv" class="mb-2 w-full p-1 text-black">
+      <!-- Button Row: Upload + Metadata -->
+      <div class="flex flex-row items-center justify-start space-x-4 mt-4 mb-4">
+        <!-- Upload CSV Button (styled like a button) -->
+        <label for="csv-file-input" class="bg-white text-black px-4 py-2 rounded cursor-pointer border border-gray-300 hover:bg-gray-100 inline-flex items-center justify-center">
+          Upload CSV
+        </label>
+        <input type="file" id="csv-file-input" accept=".csv" class="hidden">
+
+        <!-- Metadata Button -->
+        <button id="metadata-button" type="button" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+          Metadata
+        </button>
+      </div>
+
+
+
+      <!-- Upload Info -->
       <div id="upload-info" class="text-sm text-green-700 mb-4"></div>
 
       <!-- Question Input -->
       <form method="POST">
         {% csrf_token %}
         <label class="block mb-2">Enter your question</label>
-        <textarea id="user-query-box" name="user_query" class="w-full h-24 text-black p-1 mb-4" required></textarea>
-        <button id="submitBtn" type="submit" class="bg-blue-500 px-4 py-2 rounded hover:bg-blue-600">Submit</button>
+        <textarea id="user-query-box" name="user_query" class="w-full h-24 text-black p-2 rounded mb-4" required></textarea>
+        <button id="submitBtn" type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+          Submit
+        </button>
       </form>
 
       <hr class="my-4"/>
@@ -55,11 +71,30 @@
         <div class="flex-1 overflow-y-auto min-h-0 pr-2">
           <ul class="space-y-1">
             {% for q in past_questions %}
-              <li class="text-sm text-blue-300 hover:text-blue-100 cursor-pointer clickable-question" data-question="{{ q|escape }}">
-                {{ q }}
-              </li>
+            <li class="text-sm text-blue-300 hover:text-blue-100 cursor-pointer clickable-question" data-question="{{ q|escape }}">
+              {{ q }}
+            </li>
             {% endfor %}
           </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Centered Metadata Panel -->
+    <div id="metadata-panel" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 hidden">
+      <div
+        class="bg-white rounded-xl shadow-2xl p-6 relative overflow-auto flex flex-col"
+        style="width: 60vw; height: 80vh; max-width: none; max-height: none;"
+      >
+        <h2 class="text-xl font-semibold text-gray-800 mb-4">📄 Detected Table Schema</h2>
+
+        <textarea
+          id="schema-textarea"
+          class="w-full flex-grow border border-gray-300 rounded p-3 text-sm text-black resize-none mb-4"
+        ></textarea>
+
+        <div class="flex justify-end">
+          <button id="continue-button" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Continue</button>
         </div>
       </div>
     </div>
@@ -81,7 +116,7 @@
         <div class="text-lg font-bold transition-all duration-300" id="dashboardTitle">Dashboard</div>
         <div class="space-x-4">
           <button id="downloadReportBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Download Report</button>
-          {% comment %} <button id="anomaliesBtn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Anomalies</button> {% endcomment %}
+          <button id="anomaliesBtn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Anomalies</button>
           <button id="autoRunBtn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Set Auto Run Timer</button>
         </div>
       </div>
@@ -107,8 +142,8 @@
             {% for insight in top_insights %}
             <div class="relative group bg-white rounded-2xl shadow-md p-4 text-center cursor-pointer">
 
-              <!-- Tooltip -->
-              <div class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">
+              <!-- Tooltip BELOW -->
+              <div class="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-20 whitespace-nowrap">
                 {{ insight.description }}
               </div>
 
@@ -240,6 +275,96 @@
       </div>
     </div>
   </div>
+
+
+  <script>
+    const fileInput = document.getElementById('csv-file-input');
+    const uploadInfo = document.getElementById('upload-info');
+    const metadataPanel = document.getElementById('metadata-panel');
+    const metadataBtn = document.getElementById('metadata-button');
+    const continueBtn = document.getElementById('continue-button');
+    const schemaTextarea = document.getElementById('schema-textarea');
+
+    let lastSchema = ""; // This is always updated with current textarea value
+
+    // Capture schema changes live
+    schemaTextarea.addEventListener('input', () => {
+      lastSchema = schemaTextarea.value;
+    });
+
+    // Handle file upload
+    fileInput.addEventListener('change', function () {
+      const file = this.files[0];
+      if (!file) return;
+
+      uploadInfo.innerHTML = `<span class="text-yellow-500 font-bold">⏳ Uploading...</span>`;
+
+      const formData = new FormData();
+      formData.append('csv_file', file);
+
+      fetch('/upload-csv/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}'
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.message) {
+          uploadInfo.innerHTML = `
+            <span class="inline-block mr-2 font-bold">${data.message}</span>
+            <a href="${data.download_url}" download title="Download cleaned CSV">
+              <svg xmlns="http://www.w3.org/2000/svg" class="inline w-5 h-5 text-green-700 hover:text-green-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
+              </svg>
+            </a>
+          `;
+
+          if (data['table-schema']) {
+            lastSchema = data['table-schema'];
+            schemaTextarea.value = lastSchema;
+            metadataPanel.classList.remove("hidden");  // show panel
+          }
+        } else {
+          uploadInfo.innerHTML = `<span class="text-red-500">⚠️ Upload failed.</span>`;
+        }
+      })
+      .catch(() => {
+        uploadInfo.innerHTML = `<span class="text-red-500">❌ Upload error.</span>`;
+      });
+    });
+
+    // Manual toggle via Metadata button
+    metadataBtn.addEventListener('click', () => {
+      schemaTextarea.value = lastSchema;
+      metadataPanel.classList.remove("hidden");
+    });
+
+    // On Continue: Send updated schema to backend
+    continueBtn.addEventListener('click', () => {
+      lastSchema = schemaTextarea.value;
+      metadataPanel.classList.add("hidden");
+
+      fetch('/submit-schema/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({ updated_schema: lastSchema })
+      })
+      .then(res => res.json())
+      .then(data => {
+        console.log("Schema submitted:", data);
+      })
+      .catch(error => {
+        console.error("Error submitting schema:", error);
+      });
+    });
+  </script>
+
+
 
   <script>
     // Open modal
@@ -461,11 +586,16 @@
     </script>
 
 
-  <!-- CSV Upload Script -->
   <script>
-    document.getElementById('csv-file-input').addEventListener('change', function () {
+    const input = document.getElementById('csv-file-input');
+    const uploadInfo = document.getElementById('upload-info');
+
+    input.addEventListener('change', function () {
       const file = this.files[0];
       if (!file) return;
+
+      // Show "Uploading..." message
+      uploadInfo.innerHTML = `<span class="text-yellow-500 font-bold">⏳ Uploading...</span>`;
 
       const formData = new FormData();
       formData.append('csv_file', file);
@@ -480,23 +610,34 @@
       .then(res => res.json())
       .then(data => {
         if (data.message) {
-          document.getElementById('upload-info').innerHTML = `
-            <span class="inline-block mr-2">${data.message}</span>
+          uploadInfo.innerHTML = `
+            <span class="inline-block mr-2 font-bold">${data.message}</span>
             <a href="${data.download_url}" download title="Download cleaned CSV">
               <svg xmlns="http://www.w3.org/2000/svg" class="inline w-5 h-5 text-green-700 hover:text-green-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
               </svg>
             </a>
           `;
+
+          // ✅ Show schema modal if schema is present
+          if (data['table-schema']) {
+            lastSchema = data['table-schema'];
+            schemaTextarea.value = lastSchema;
+            modal.classList.remove("hidden");
+          }
+
         } else {
-          document.getElementById('upload-info').innerText = "⚠️ Upload failed.";
+          uploadInfo.innerHTML = `<span class="text-red-500">⚠️ Upload failed.</span>`;
         }
       })
+
       .catch(err => {
-        document.getElementById('upload-info').innerText = "❌ Upload error.";
+        uploadInfo.innerHTML = `<span class="text-red-500">❌ Upload error.</span>`;
       });
     });
   </script>
+
+
 
   <!-- Clickable Past Questions -->
   <script>

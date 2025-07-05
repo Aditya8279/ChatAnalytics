@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from .llm_pipeline import generate_greet_output, classification_agent, break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
+from .llm_pipeline import table_schema_agent, generate_greet_output, classification_agent, break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
 import pandas as pd
 from pandas.api.types import is_period_dtype
 import numpy as np
@@ -221,43 +221,55 @@ def inject_plot_formatting(code: str, height: int = 300) -> str:
     """
     Inject layout and HTML rendering into Plotly figure code.
     Also removes 'fig.show()' if present.
-
-    Parameters:
-    - code (str): Python code string containing the Plotly figure.
-    - height (int): Desired plot height.
-
-    Returns:
-    - str: Modified Python code with layout and HTML export.
     """
     lines = code.strip().splitlines()
     modified_lines = []
+    
+    fig_started = False
+    fig_complete = False
+    fig_block = []
+    is_line_plot = False
 
-    fig_assigned = False
     for line in lines:
         stripped = line.strip()
-        
-        # Skip fig.show() line
+
+        # Skip fig.show()
         if stripped.startswith("fig.show()"):
             continue
-        
-        modified_lines.append(line)
 
-        # Twilight color palette
-        twilight_colors = px.colors.cyclical.Twilight
+        # Detect start of fig assignment
+        if not fig_started and stripped.startswith("fig = "):
+            fig_started = True
 
-        if not fig_assigned and stripped.startswith("fig = "):
-            # Insert formatting after first fig assignment
-            modified_lines.append(
-                f"fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True, height={height}, "
-                f"plot_bgcolor='white', paper_bgcolor='white', "
-                f"xaxis=dict(showgrid=False, showticklabels=False), "
-                f"yaxis=dict(showgrid=True, showticklabels=True, gridcolor='lightgrey'))"
-                # f"colorway={twilight_colors})"
-            )
-            modified_lines.append(
-                'plot_html = fig.to_html(full_html=False, include_plotlyjs=False, config={"displayModeBar": False, "responsive": True})'
-            )
-            fig_assigned = True
+        # Check if this is a line plot
+        if "px.line" in line:
+            is_line_plot = True
+
+        if fig_started and not fig_complete:
+            fig_block.append(line)
+            if stripped.endswith(")") or stripped.endswith("),"):  # function call end
+                fig_complete = True
+                modified_lines.extend(fig_block)
+
+                # Add dot markers for line plots
+                if is_line_plot:
+                    modified_lines.append('fig.update_traces(mode="lines+markers")')
+
+                # Inject formatting
+                modified_lines.append(
+                    f"fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True, height={height}, "
+                    f"plot_bgcolor='white', paper_bgcolor='white', "
+                    f"xaxis=dict(showgrid=False, showticklabels=False), "
+                    f"yaxis=dict(showgrid=True, showticklabels=True, gridcolor='lightgrey', tickformat='.2~s'))"
+                )
+                modified_lines.append(
+                    'plot_html = fig.to_html(full_html=False, include_plotlyjs=False, '
+                    'config={"displayModeBar": False, "responsive": True})'
+                )
+        elif not fig_started:
+            modified_lines.append(line)
+        elif fig_complete:
+            modified_lines.append(line)
 
     return "\n".join(modified_lines)
 
@@ -304,6 +316,30 @@ def insert_user_question(sub_questions, user_question, analysis_info):
     sub_questions.insert(insert_index, user_question)
     return sub_questions
 
+def human_format(value):
+    """
+    Converts a numeric value to a human-readable string (e.g. 1,250,000 → 1.25M).
+    Leaves non-numeric values unchanged.
+    """
+    try:
+        num = float(value)
+    except (ValueError, TypeError):
+        return value  # Not a number
+
+    abs_num = abs(num)
+
+    if abs_num < 1_000:
+        return f"{num:.2f}"
+    elif abs_num < 1_000_000:
+        return f"{num / 1_000:.2f}K"
+    elif abs_num < 1_000_000_000:
+        return f"{num / 1_000_000:.2f}M"
+    elif abs_num < 1_000_000_000_000:
+        return f"{num / 1_000_000_000:.2f}B"
+    else:
+        return f"{num / 1_000_000_000_000:.2f}T"
+
+
 
 @csrf_exempt
 def upload_csv(request):
@@ -323,16 +359,26 @@ def upload_csv(request):
                 # else:
                 df[col] = df[col].fillna(pd.NA)  # or None
 
+            metadata = extract_metadata(df)
+
             request.session["csv_data"] = df.to_json()
             request.session["columns"] = list(df.columns)
+            request.session["metadata"] = metadata
+
+            meta_data = f"Metadata:\n{metadata}"
+            logging.info(f"=== meta_data ===\n\n{meta_data}")
+            table_schema_agent_response = table_schema_agent(meta_data)
+            logging.info(f"=== table_schema_agent_response ===\n\n{table_schema_agent_response}")
+            
 
             # Save to a file for download
             download_path = os.path.join(settings.MEDIA_ROOT, "cleaned_data.csv")
             df.to_csv(download_path, index=False)
 
             return JsonResponse({
-                "message": f"✅ The final dataset contains {df.shape[1]} columns and {df.shape[0]} rows after preprocessing.",
-                "download_url": f"{settings.MEDIA_URL}cleaned_data.csv"
+                "message": f"✅ The {csv_file.name} dataset contains {df.shape[1]} columns and {df.shape[0]} rows after preprocessing.",
+                "download_url": f"{settings.MEDIA_URL}cleaned_data.csv",
+                "table-schema": table_schema_agent_response.strip()
             })
 
         elif "csv_data" in request.session:
@@ -341,6 +387,25 @@ def upload_csv(request):
         else:
             df = None
             return JsonResponse({"error": "Invalid request"}, status=400)
+        
+def submit_schema(request):
+    if request.method == 'POST':
+        try:
+            body = request.body.decode('utf-8')
+            logging.info(f"Raw body received:\n{body}")
+
+            if body:
+
+                data = json.loads(body)
+                updated_schema = data.get('updated_schema')
+                request.session["table_schema"] = updated_schema
+
+                logging.info(f"=== Received updated schema: ===\n\n{updated_schema}")
+                return JsonResponse({'status': 'ok'})
+
+        except json.JSONDecodeError:
+            logging.error("Invalid JSON received.")
+            return JsonResponse({'status': 'Error'})
 
 def dashboard_view(request):
     context = {}
@@ -387,12 +452,15 @@ def dashboard_view(request):
         
         df = df.applymap(remove_special_chars)
         df = convert_string_numerics(df)
-        metadata = extract_metadata(df)
 
-        analysis_info = classification_agent(user_question)
-        logging.info(f"=== classification_agent output ===\n\n{analysis_info}")
-        # Parse the string into a dictionary
-        analysis_info = json.loads(analysis_info)
+        metadata = request.session["metadata"]
+        table_schema = request.session["table_schema"]
+
+        logging.info(f"=== table_schema ===\n\n{table_schema}")
+    
+        # logging.info(f"=== classification_agent output ===\n\n{analysis_info}")
+        # # Parse the string into a dictionary
+        # analysis_info = json.loads(analysis_info)
 
         user_query = f"User Question: {user_question}\n\nMetadata:\n{metadata}"
 
@@ -478,6 +546,8 @@ def dashboard_view(request):
                     if is_period_dtype(result[col]):
                         result[col] = result[col].astype(str)
 
+                result.loc[:, result.select_dtypes(include=['float', 'float64']).columns] = result.select_dtypes(include=['float', 'float64']).round(2)
+
                 result_head = result.head(14)
 
                 # local_vars["result"] = result.copy()
@@ -494,15 +564,18 @@ def dashboard_view(request):
                 
                 # filter_result[i] = result
 
-                if isinstance(result, (int, float)):
+                if isinstance(result, (int, float, np.integer, np.floating)):
+                    logging.info(f"=== result variable type (Q{i+1}, Attempt {attempt+1}) ===\n{type(result)}\n\n")
                     result = round(result, 2)
                     summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
                     description = generate_description(summary_prompt)
                     description_list[i] = description
+                    result = human_format(result)
                     filter_result[i] = result
                     # filter_result.append(result)
                 else:
                     if not isinstance(result, (pd.DataFrame, pd.Series)):
+                        logging.info(f"=== result variable type (Q{i+1}, Attempt {attempt+1}) ===\n{type(result)}\n\n")
                         summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
                         description = generate_description(summary_prompt)
                         description_list[i] = description
