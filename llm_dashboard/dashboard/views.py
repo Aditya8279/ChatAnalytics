@@ -86,25 +86,47 @@ def extract_json_from_response(response):
     raise TypeError("❌ Model response must be a string or dict.")
 
 # Function to remove unwanted special characters except ., space, and -
-def remove_special_chars(s):
-    if isinstance(s, str):
-        return re.sub(r"[^A-Za-z0-9.\s\-]", "", s)
-    return s
+# def remove_special_chars(s):
+#     if isinstance(s, str):
+#         return re.sub(r"[^A-Za-z0-9.\s\-]", "", s)
+#     return s
+
+# Precompile regex pattern once
+special_char_pattern = re.compile(r"[^A-Za-z0-9.\s\-]")
+
+def remove_special_chars_series(series):
+    return series.astype(str).str.replace(special_char_pattern, "", regex=True)
+
+def clean_special_chars(df):
+    obj_cols = df.select_dtypes(include='object').columns
+    df[obj_cols] = df[obj_cols].apply(remove_special_chars_series)
+    return df
 
 # Sample: assume df is your DataFrame
-def convert_string_numerics(df):
-    for col in df.columns:
-        if df[col].dtype == 'object':
-            # Try converting to numeric, coerce errors (e.g., '£123.45' or '57.85%')
-            cleaned_col = (
-                df[col]
-                .astype(str)
-                # .str.replace(r'[£,%]', '', regex=True)
-                .str.strip()
-            )
-            converted = pd.to_numeric(cleaned_col, errors='coerce')
+# def convert_string_numerics(df):
+#     for col in df.columns:
+#         if df[col].dtype == 'object':
+#             # Try converting to numeric, coerce errors (e.g., '£123.45' or '57.85%')
+#             cleaned_col = (
+#                 df[col]
+#                 .astype(str)
+#                 # .str.replace(r'[£,%]', '', regex=True)
+#                 .str.strip()
+#             )
+#             converted = pd.to_numeric(cleaned_col, errors='coerce')
 
-            # Only update if it actually results in valid numeric values
+#             # Only update if it actually results in valid numeric values
+#             if converted.notna().sum() > 0:
+#                 df[col] = converted
+#     return df
+
+def convert_string_numerics_fast(df):
+    obj_cols = df.select_dtypes(include='object').columns
+    for col in obj_cols:
+        s = df[col].astype(str).str.strip()
+        # Try converting only if at least one value looks numeric
+        if s.str.match(r"^[\d\.\-]+$").sum() > 0:
+            converted = pd.to_numeric(s, errors='coerce')
             if converted.notna().sum() > 0:
                 df[col] = converted
     return df
@@ -347,18 +369,23 @@ def upload_csv(request):
         csv_file = request.FILES.get('csv_file')
 
         if csv_file:
-            # Step 1: Read and store CSV in session
+            # Read and store CSV in session
             df = pd.read_csv(csv_file, dtype=str, low_memory=False)
-            # Step 1: Drop columns with > 50% missing values
+            # Drop columns with > 50% missing values
             df = df.loc[:, df.isnull().mean() <= 0.5]
+            df = df.dropna()  # drop rows with NaNs
 
-            # Step 2: Fill remaining missing values
-            for col in df.columns:
-                # if pd.api.types.is_numeric_dtype(df[col]):
-                #     df[col] = df[col].fillna(0)
-                # else:
-                df[col] = df[col].fillna(pd.NA)  # or None
+            # # Step 2: Fill remaining missing values
+            # for col in df.columns:
+            #     # if pd.api.types.is_numeric_dtype(df[col]):
+            #     #     df[col] = df[col].fillna(0)
+            #     # else:
+            #     df[col] = df[col].fillna(pd.NA)  # or None
 
+            # Remove special characters from object columns only
+            df = clean_special_chars(df)
+            #Convert eligible object columns to numerics
+            df = convert_string_numerics_fast(df)
             metadata = extract_metadata(df)
 
             request.session["csv_data"] = df.to_json()
@@ -450,8 +477,8 @@ def dashboard_view(request):
                 "past_questions": past_questions
             })
         
-        df = df.applymap(remove_special_chars)
-        df = convert_string_numerics(df)
+        # df = df.applymap(remove_special_chars)
+        # df = convert_string_numerics(df)
 
         metadata = request.session["metadata"]
         table_schema = request.session["table_schema"]
