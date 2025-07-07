@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html>
 <head>
@@ -115,9 +116,20 @@
       <div id="topBar" class="sticky top-0 z-30 bg-white shadow-md h-16 flex items-center justify-between -mx-6 px-6 mb-6">
         <div class="text-lg font-bold transition-all duration-300" id="dashboardTitle">Dashboard</div>
         <div class="space-x-4">
-          <button id="downloadReportBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Download Report</button>
-          <button id="anomaliesBtn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Anomalies</button>
-          <button id="autoRunBtn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Set Auto Run Timer</button>
+          <!-- Download Report Icon Button -->
+          <button id="downloadReportBtn" class="p-2 hover:scale-105 transition-transform" title="Download Report">
+            <img src="{% static 'png/download_report.png' %}" alt="Download Report" class="h-6 w-6" />
+          </button>
+
+          <!-- Anomalies Icon Button -->
+          <button id="anomaliesBtn" class="p-2 hover:scale-105 transition-transform" title="View Anomalies">
+            <img src="{% static 'png/warning_sign.png' %}" alt="Anomalies Alert" class="h-6 w-6" />
+          </button>
+
+          <!-- Auto Run Timer Icon Button -->
+          <button id="autoRunBtn" class="p-2 hover:scale-105 transition-transform" title="Set Auto Run Timer">
+            <img src="{% static 'png/timer.png' %}" alt="Auto Run Timer" class="h-6 w-6" />
+          </button>
         </div>
       </div>
 
@@ -276,6 +288,15 @@
     </div>
   </div>
 
+  <!-- 🔍 Anomalies Modal -->
+  <div id="anomaliesModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-xl p-6 max-w-2xl w-full shadow-lg relative">
+      <button id="closeAnomaliesModal" class="absolute top-2 right-2 text-gray-500 hover:text-red-500 text-xl">&times;</button>
+      <h2 class="text-xl font-semibold mb-4">Anomalies Detected</h2>
+      <pre id="anomaliesContent" class="whitespace-pre-wrap text-sm text-gray-700 max-h-[400px] overflow-y-auto"></pre>
+    </div>
+  </div>
+
 
   <script>
     const fileInput = document.getElementById('csv-file-input');
@@ -285,12 +306,22 @@
     const continueBtn = document.getElementById('continue-button');
     const schemaTextarea = document.getElementById('schema-textarea');
 
-    let lastSchema = ""; // This is always updated with current textarea value
+    let lastSchema = ""; // Always updated with current textarea value
+    let anomaliesSeen = false;
+    window.anomaliesData = "";
 
     // Capture schema changes live
     schemaTextarea.addEventListener('input', () => {
       lastSchema = schemaTextarea.value;
     });
+
+    // Highlight anomalies icon
+    function highlightAnomaliesIcon() {
+      const icon = document.getElementById("anomaliesBtn");
+      if (!anomaliesSeen) {
+        icon.classList.add("ring-4", "ring-red-500", "animate-pulse");
+      }
+    }
 
     // Handle file upload
     fileInput.addEventListener('change', function () {
@@ -324,7 +355,13 @@
           if (data['table-schema']) {
             lastSchema = data['table-schema'];
             schemaTextarea.value = lastSchema;
-            metadataPanel.classList.remove("hidden");  // show panel
+            metadataPanel.classList.remove("hidden");
+          }
+
+          if (data['Anomalies'] && data['Anomalies'].trim() !== "") {
+            window.anomaliesData = data['Anomalies'];
+            anomaliesSeen = false;  // <--- reset this so new highlight works
+            highlightAnomaliesIcon();
           }
         } else {
           uploadInfo.innerHTML = `<span class="text-red-500">⚠️ Upload failed.</span>`;
@@ -335,13 +372,13 @@
       });
     });
 
-    // Manual toggle via Metadata button
+    // Metadata button toggle
     metadataBtn.addEventListener('click', () => {
       schemaTextarea.value = lastSchema;
       metadataPanel.classList.remove("hidden");
     });
 
-    // On Continue: Send updated schema to backend
+    // Submit updated schema
     continueBtn.addEventListener('click', () => {
       lastSchema = schemaTextarea.value;
       metadataPanel.classList.add("hidden");
@@ -362,7 +399,30 @@
         console.error("Error submitting schema:", error);
       });
     });
+
+    // Handle anomalies icon click
+    document.getElementById("anomaliesBtn").addEventListener("click", () => {
+      const icon = document.getElementById("anomaliesBtn");
+      const modal = document.getElementById("anomaliesModal");
+      const content = document.getElementById("anomaliesContent");
+
+      // Remove highlight
+      icon.classList.remove("ring-4", "ring-red-500", "animate-pulse");
+      anomaliesSeen = true;
+
+      // Show modal if anomalies exist
+      if (window.anomaliesData) {
+        content.textContent = window.anomaliesData;
+        modal.classList.remove("hidden");
+      }
+    });
+
+    // Close anomalies modal
+    document.getElementById("closeAnomaliesModal").addEventListener("click", () => {
+      document.getElementById("anomaliesModal").classList.add("hidden");
+    });
   </script>
+
 
 
 

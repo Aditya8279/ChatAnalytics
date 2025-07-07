@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from .llm_pipeline import table_schema_agent, generate_greet_output, classification_agent, break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
+from .llm_pipeline import anomalies_agent, data_identifier_agent, table_schema_agent, generate_greet_output, classification_agent, break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
 import pandas as pd
 from pandas.api.types import is_period_dtype
 import numpy as np
@@ -29,6 +29,8 @@ import tempfile
 from datetime import datetime
 import os
 # from django.http import HttpResponse
+
+from sklearn.ensemble import IsolationForest
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -360,8 +362,143 @@ def human_format(value):
         return f"{num / 1_000_000_000:.2f}B"
     else:
         return f"{num / 1_000_000_000_000:.2f}T"
+    
+
+def detect_auto_anomalies(df, model_output, iqr_multiplier=4.5, iso_contamination=0.005):
+    """
+    Automatically detect anomalies in either time series or general tabular data.
+
+    Parameters:
+    - df: Input DataFrame
+    - model_output: JSON dict from LLM containing keys:
+        - is_timeseries: bool
+        - datetime_column: str
+        - target_columns: list of str
+        - frequency: str (optional, for future tuning)
+
+    Returns:
+    - result_df: DataFrame with anomalies and 'Anomaly Reason' column
+    - anomaly_flags: Boolean Series marking anomalies
+    """
+    
+    is_timeseries = model_output.get("is_timeseries", False)
+    target_cols = model_output.get("target_columns", [])
+
+    # if not target_cols or (is_timeseries and not date_col):
+    #     return {"error": "Model output missing required information."}, pd.Series([False] * len(df), index=df.index)
+
+    df = df.copy()
+
+    # ---------- TIME SERIES HANDLING ----------
+    if is_timeseries:
+        
+        date_col = model_output.get("datetime_column")
+        freq_map = {
+            'daily': 7,        # 7-day window
+            'hourly': 24,      # 24-hour window
+            'weekly': 4,       # 4-week window (approx. 1 month)
+            'monthly': 12,     # 12-month window (1 year)
+            'quarterly': 4,    # 4 quarters (1 year)
+            'yearly': 2        # 3-year window
+        }
+
+        detected_freq = model_output.get("frequency")
+        # detected_freq = "Monthly"
+        window = freq_map.get(detected_freq, 7)  # default to 7 if not found
 
 
+        
+        df[date_col] = pd.to_datetime(df[date_col].astype(str), errors='coerce')
+        df = df.dropna(subset=[date_col])
+        df = df.sort_values(by=date_col)
+
+        # result_df = df.copy()
+        # result_df["Anomaly Reason"] = ""
+
+        anomaly_descriptions = []
+
+        for col in target_cols:
+            if col not in df.columns or not pd.api.types.is_numeric_dtype(df[col]):
+                continue
+            temp_df = df[[date_col, col]].copy()
+            temp_df['rolling_mean'] = temp_df[col].rolling(window=window, min_periods=1).mean()
+            temp_df['rolling_std'] = temp_df[col].rolling(window=window, min_periods=1).std()
+            temp_df['z_score'] = (temp_df[col] - temp_df['rolling_mean']) / temp_df['rolling_std']
+            temp_df['anomaly'] = abs(temp_df['z_score']) > 3
+
+            # result_df.loc[temp_df['anomaly'], "Anomaly Reason"] += f"TimeSeries Z-Score: {col}; "
+            # Add both column name and value to the anomaly reason
+            for idx in temp_df.index[temp_df['anomaly']]:
+                date_val = temp_df.loc[idx, date_col]
+                value = temp_df.loc[idx, col]
+                # result_df.at[idx, "Anomaly Reason"] += (
+                #     f"TimeSeries Z-Score (window={window}): {col}={value} on date column_name:'{date_col}'=column_value:'{date_val}'; "
+                # )
+                description = (
+                    f"TimeSeries Z-Score (window={window}): {col}={value} on date column_name:'{date_col}'=column_value:'{date_val}';"
+                )
+                anomaly_descriptions.append(description)
+
+        # flags = result_df["Anomaly Reason"] != ""
+        # return result_df[flags], flags
+        return anomaly_descriptions
+
+    # ---------- NON-TIME SERIES HANDLING ----------
+    else:
+        numeric_df = df.select_dtypes(include='number')
+        if numeric_df.empty:
+            return ["No numeric columns for anomaly detection."]
+    
+        descriptions = []
+    
+        # --- IQR Detection ---
+        def iqr_anomaly_flags(df, multiplier):
+            flags = pd.Series([False] * len(df), index=df.index)
+            reasons = pd.Series([""] * len(df), index=df.index)
+            for col in df.columns:
+                Q1 = df[col].quantile(0.25)
+                Q3 = df[col].quantile(0.75)
+                IQR = Q3 - Q1
+                lower = Q1 - multiplier * IQR
+                upper = Q3 + multiplier * IQR
+                outliers = (df[col] < lower) | (df[col] > upper)
+                flags |= outliers
+                for idx in df.index[outliers]:
+                    val = df.loc[idx, col]
+                    reasons[idx] += f"{col}: {val}; "
+            return flags, reasons
+    
+        # --- Isolation Forest Detection ---
+        def isolation_forest_flags(df, contamination):
+            clean_df = df.dropna()
+            model = IsolationForest(contamination=contamination, random_state=42)
+            preds = model.fit_predict(clean_df)
+            flags = pd.Series(False, index=df.index)
+            reasons = pd.Series([""] * len(df), index=df.index)
+            flags[clean_df.index] = preds == -1
+    
+            for idx in clean_df[flags[clean_df.index]].index:
+                diffs = (clean_df.loc[idx] - clean_df.median()).abs()
+                top_features = diffs.sort_values(ascending=False).head(3).index.tolist()
+                reason_parts = [f"{col}: {df.loc[idx, col]}" for col in top_features]
+                reasons[idx] = "IF: " + ", ".join(reason_parts)
+            return flags, reasons
+    
+        # Run both detections
+        flags_iqr, reasons_iqr = iqr_anomaly_flags(numeric_df, iqr_multiplier)
+        flags_if, reasons_if = isolation_forest_flags(numeric_df, iso_contamination)
+        combined_flags = flags_iqr | flags_if
+    
+        for idx in df.index[combined_flags]:
+            parts = []
+            if flags_iqr[idx]:
+                parts.append("IQR: " + reasons_iqr[idx].strip())
+            if flags_if[idx]:
+                parts.append(reasons_if[idx].strip())
+            description = " | ".join(parts)
+            descriptions.append(description)
+    
+        return descriptions
 
 @csrf_exempt
 def upload_csv(request):
@@ -397,6 +534,13 @@ def upload_csv(request):
             table_schema_agent_response = table_schema_agent(meta_data)
             logging.info(f"=== table_schema_agent_response ===\n\n{table_schema_agent_response}")
             
+            data_identifier_agent_response = data_identifier_agent(meta_data)
+            data_identifier_agent_response = json.loads(data_identifier_agent_response)
+
+            anomalies_df = detect_auto_anomalies(df, data_identifier_agent_response)
+
+            anomalies_agent_response = anomalies_agent(str(anomalies_df[-3:]))
+            logging.info(f"=== anomalies_agent_response ===\n\n{anomalies_agent_response}")
 
             # Save to a file for download
             download_path = os.path.join(settings.MEDIA_ROOT, "cleaned_data.csv")
@@ -405,7 +549,8 @@ def upload_csv(request):
             return JsonResponse({
                 "message": f"✅ The {csv_file.name} dataset contains {df.shape[1]} columns and {df.shape[0]} rows after preprocessing.",
                 "download_url": f"{settings.MEDIA_URL}cleaned_data.csv",
-                "table-schema": table_schema_agent_response.strip()
+                "table-schema": table_schema_agent_response.strip(),
+                "Anomalies":anomalies_agent_response
             })
 
         elif "csv_data" in request.session:
