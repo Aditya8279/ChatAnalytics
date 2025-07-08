@@ -9,8 +9,9 @@ Pillow
 fpdf
 dotenv
 tabulate
-plotly
+plotly==5.24.1
 gunicorn
+scikit-learn
 
 # Optional (built-in, but include for completeness or deployment)
 python-dateutil

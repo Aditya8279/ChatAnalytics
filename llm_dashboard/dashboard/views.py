@@ -38,7 +38,7 @@ from django.conf import settings
 from django.utils.timezone import now
 
 def extract_metadata(df):
-    sample = df.head(13).copy()
+    sample = df.head(3).copy()
     
     # Convert potentially non-serializable types to strings
     sample = sample.applymap(lambda x: str(x) if isinstance(x, (pd.Timestamp, pd.Timedelta, np.generic)) else x)
