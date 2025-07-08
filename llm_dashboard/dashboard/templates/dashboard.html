@@ -1,14 +1,30 @@
+{% load static %}
 <!DOCTYPE html>
 <html>
 <head>
   <title>LLM Dashboard</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <style>
+    /* When sidebar is collapsed, shift title right */
+    #dashboardContainer.sidebar-collapsed #dashboardTitle {
+      padding-left: 2.5rem; /* Tailwind's pl-10 ≈ 2.5rem */
+    }
+    #timerModal {
+      backdrop-filter: blur(2px);
+      transition: all 0.3s ease;
+    }
+  </style>
 </head>
 <body class="h-screen bg-gray-100 overflow-hidden">
 
+  <!-- Add padding to your page content to avoid being hidden under fixed bar -->
+  {% comment %} <div class="pt-20"></div> {% endcomment %}
+
+
   <!-- Sidebar Toggle Button -->
-  <button id="toggleSidebarBtn" class="absolute top-4 left-2 z-20 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700">
+  <button id="toggleSidebarBtn" class="absolute top-4 left-2 z-50 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700">
     ☰
   </button>
 
@@ -19,17 +35,33 @@
     <div id="sidebar" class="w-1/4 bg-gray-800 text-white p-4 flex flex-col overflow-hidden transition-all duration-300 ease-in-out">
       <h2 class="text-xl font-bold mb-4 pl-10">Data Assistant</h2>
 
-      <!-- CSV Upload -->
-      <label class="block mb-2">Upload CSV</label>
-      <input type="file" id="csv-file-input" accept=".csv" class="mb-2 w-full p-1 text-black">
+      <!-- Button Row: Upload + Metadata -->
+      <div class="flex flex-row items-center justify-start space-x-4 mt-4 mb-4">
+        <!-- Upload CSV Button (styled like a button) -->
+        <label for="csv-file-input" class="bg-white text-black px-4 py-2 rounded cursor-pointer border border-gray-300 hover:bg-gray-100 inline-flex items-center justify-center">
+          Upload CSV
+        </label>
+        <input type="file" id="csv-file-input" accept=".csv" class="hidden">
+
+        <!-- Metadata Button -->
+        <button id="metadata-button" type="button" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+          Metadata
+        </button>
+      </div>
+
+
+
+      <!-- Upload Info -->
       <div id="upload-info" class="text-sm text-green-700 mb-4"></div>
 
       <!-- Question Input -->
       <form method="POST">
         {% csrf_token %}
         <label class="block mb-2">Enter your question</label>
-        <textarea id="user-query-box" name="user_query" class="w-full h-24 text-black p-1 mb-4" required></textarea>
-        <button type="submit" class="bg-blue-500 px-4 py-2 rounded hover:bg-blue-600">Submit</button>
+        <textarea id="user-query-box" name="user_query" class="w-full h-24 text-black p-2 rounded mb-4" required></textarea>
+        <button id="submitBtn" type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+          Submit
+        </button>
       </form>
 
       <hr class="my-4"/>
@@ -40,95 +72,167 @@
         <div class="flex-1 overflow-y-auto min-h-0 pr-2">
           <ul class="space-y-1">
             {% for q in past_questions %}
-              <li class="text-sm text-blue-300 hover:text-blue-100 cursor-pointer clickable-question" data-question="{{ q|escape }}">
-                {{ q }}
-              </li>
+            <li class="text-sm text-blue-300 hover:text-blue-100 cursor-pointer clickable-question" data-question="{{ q|escape }}">
+              {{ q }}
+            </li>
             {% endfor %}
           </ul>
         </div>
       </div>
     </div>
 
+    <!-- Centered Metadata Panel -->
+    <div id="metadata-panel" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 hidden">
+      <div
+        class="bg-white rounded-xl shadow-2xl p-6 relative overflow-auto flex flex-col"
+        style="width: 60vw; height: 80vh; max-width: none; max-height: none;"
+      >
+        <h2 class="text-xl font-semibold text-gray-800 mb-4">📄 Detected Table Schema</h2>
+
+        <textarea
+          id="schema-textarea"
+          class="w-full flex-grow border border-gray-300 rounded p-3 text-sm text-black resize-none mb-4"
+        ></textarea>
+
+        <div class="flex justify-end">
+          <button id="continue-button" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Continue</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Main Content -->
-    <div class="flex-1 p-6 overflow-y-scroll" id="mainContent">
+    <div id="mainContent" class="relative flex-1 pt-0 px-6 pb-6 overflow-y-scroll">
 
-      <!-- Top Insight Tiles -->
-      {% if top_insights %}
-      <h2 class="text-xl font-semibold mb-4 text-gray-700">Top Insights</h2>
-      <div class="grid grid-cols-5 gap-4 mb-8">
-        {% for insight in top_insights %}
-        <div class="relative group bg-white rounded shadow p-4 text-center cursor-pointer">
-          <div class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">
-            {{ insight.description }}
-          </div>
-          <div class="text-sm text-gray-500">{{ insight.label }}</div>
-          <div class="text-xl font-bold text-gray-800 mt-1">{{ insight.value }}</div>
+      <!-- Spinner inside mainContent -->
+      <div id="spinnerWrapper" class="hidden absolute inset-0 bg-white bg-opacity-70 flex items-center justify-center z-30">
+        <svg class="animate-spin h-16 w-16 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+        </svg>
+      </div>
+
+
+      <!-- ✅ Top Bar is now inside of main content -->
+      <div id="topBar" class="sticky top-0 z-30 bg-white shadow-md h-16 flex items-center justify-between -mx-6 px-6 mb-6">
+        <div class="text-lg font-bold transition-all duration-300" id="dashboardTitle">Dashboard</div>
+        <div class="space-x-4">
+          <!-- Download Report Icon Button -->
+          <button id="downloadReportBtn" class="p-2 hover:scale-105 transition-transform" title="Download Report">
+            <img src="{% static 'png/download_report.png' %}" alt="Download Report" class="h-6 w-6" />
+          </button>
+
+          <!-- Anomalies Icon Button -->
+          <button id="anomaliesBtn" class="p-2 hover:scale-105 transition-transform" title="View Anomalies">
+            <img src="{% static 'png/warning_sign.png' %}" alt="Anomalies Alert" class="h-6 w-6" />
+          </button>
+
+          <!-- Auto Run Timer Icon Button -->
+          <button id="autoRunBtn" class="p-2 hover:scale-105 transition-transform" title="Set Auto Run Timer">
+            <img src="{% static 'png/timer.png' %}" alt="Auto Run Timer" class="h-6 w-6" />
+          </button>
         </div>
-        {% endfor %}
+      </div>
+
+      {% if not top_insights and not plot_images|length > 0 %}
+      <!-- Initial welcome message -->
+      <div id="welcomeMessage" class="h-full flex flex-col items-center justify-center text-center text-gray-600 space-y-4">
+        <h1 class="text-2xl font-bold text-gray-800">Welcome to your Data Assistant Dashboard</h1>
+        <p class="max-w-xl text-base">
+          This analytical assistant helps you explore, visualize, and summarize your data effortlessly.<br />
+          Upload your dataset and ask any question to begin.
+        </p>
       </div>
       {% endif %}
 
-      <!-- Middle Plots -->
-      {% if plot_images|length > 0 %}
-      <h2 class="text-xl font-semibold mb-4 text-gray-700">Visual Analysis</h2>
-      <div class="grid grid-cols-2 gap-4 mb-8">
-        {% if plot_images|length > 0 and plot_images.0 %}
-        <div id="plot-0" class="bg-white p-4 rounded shadow">
-          {{ plot_images.0|safe }}
+
+      <!-- ✅ REPORT SECTION TO CAPTURE -->
+      <div id="reportSection">
+        <!-- Top Insight Tiles -->
+        {% if top_insights %}
+          {% comment %} <h2 class="text-xl font-semibold mb-4 text-gray-700">Top Insights</h2> {% endcomment %}
+          <div class="grid grid-cols-5 gap-4 mb-8">
+            {% for insight in top_insights %}
+            <div class="relative group bg-white rounded-2xl shadow-md p-4 text-center cursor-pointer">
+
+              <!-- Tooltip BELOW -->
+              <div class="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-20 whitespace-nowrap">
+                {{ insight.description }}
+              </div>
+
+              <!-- Label -->
+              <div class="text-sm text-gray-500 z-10 relative">{{ insight.label }}</div>
+
+              <!-- Value -->
+              <div class="text-xl font-bold text-gray-800 mt-1 z-10 relative">{{ insight.value }}</div>
+
+            </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+
+        <!-- Middle Plots -->
+        {% if plot_images|length > 0 %}
+        {% comment %} <h2 class="text-xl font-semibold mb-4 text-gray-700">Visual Analysis</h2> {% endcomment %}
+        <div class="grid grid-cols-2 gap-4 mb-8">
+          {% if plot_images|length > 0 and plot_images.0 %}
+          <div id="plot-0" class="bg-white p-4 rounded shadow">
+            {{ plot_images.0|safe }}
+          </div>
+          {% endif %}
+          {% if plot_images|length > 1 and plot_images.1 %}
+          <div id="plot-1" class="bg-white p-4 rounded shadow">
+            {{ plot_images.1|safe }}
+          </div>
+          {% endif %}
         </div>
         {% endif %}
-        {% if plot_images|length > 1 and plot_images.1 %}
-        <div id="plot-1" class="bg-white p-4 rounded shadow">
-          {{ plot_images.1|safe }}
+
+        <!-- Bottom: Plot 3 + Final Summary -->
+        {% if plot_images|length > 2 or final_summary %}
+        <div class="grid grid-cols-2 gap-4 mb-6">
+
+          <!-- Plot 3 -->
+          {% if plot_images|length > 2 and plot_images.2 %}
+          <div id="plot-2" class="bg-white p-4 rounded shadow">
+            {{ plot_images.2|safe }}
+          </div>
+          {% endif %}
+
+          <!-- Final Summary -->
+          {% if final_summary %}
+          <div class="bg-white p-4 rounded shadow">
+            <h3 class="text-lg font-semibold text-gray-800 mb-2">Final Summary</h3>
+            <p class="text-gray-800 text-sm italic mb-4">
+              {{ final_summary.final_summary }}
+            </p>
+
+            <div class="mb-3">
+              <h4 class="text-md font-semibold text-green-700 mb-1">Findings</h4>
+              <ul class="list-disc list-inside text-gray-700 text-sm">
+                {% for f in final_summary.findings %}
+                <li>{{ f }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+
+            <div>
+              <h4 class="text-md font-semibold text-red-700 mb-1">Anomalies</h4>
+              {% if final_summary.anomalies.0 == null %}
+              <p class="text-gray-500 text-sm">None</p>
+              {% else %}
+              <ul class="list-disc list-inside text-gray-700 text-sm">
+                {% for a in final_summary.anomalies %}
+                <li>{{ a }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+            </div>
+          </div>
+          {% endif %}
         </div>
         {% endif %}
       </div>
-      {% endif %}
-
-      <!-- Bottom: Plot 3 + Final Summary -->
-      {% if plot_images|length > 2 or final_summary %}
-      <div class="grid grid-cols-2 gap-4 mb-6">
-
-        <!-- Plot 3 -->
-        {% if plot_images|length > 2 and plot_images.2 %}
-        <div id="plot-2" class="bg-white p-4 rounded shadow">
-          {{ plot_images.2|safe }}
-        </div>
-        {% endif %}
-
-        <!-- Final Summary -->
-        {% if final_summary %}
-        <div class="bg-white p-4 rounded shadow">
-          <h3 class="text-lg font-semibold text-gray-800 mb-2">Final Summary</h3>
-          <p class="text-gray-800 text-sm italic mb-4">
-            {{ final_summary.final_summary }}
-          </p>
-
-          <div class="mb-3">
-            <h4 class="text-md font-semibold text-green-700 mb-1">Findings</h4>
-            <ul class="list-disc list-inside text-gray-700 text-sm">
-              {% for f in final_summary.findings %}
-              <li>{{ f }}</li>
-              {% endfor %}
-            </ul>
-          </div>
-
-          <div>
-            <h4 class="text-md font-semibold text-red-700 mb-1">Anomalies</h4>
-            {% if final_summary.anomalies.0 == null %}
-            <p class="text-gray-500 text-sm">None</p>
-            {% else %}
-            <ul class="list-disc list-inside text-gray-700 text-sm">
-              {% for a in final_summary.anomalies %}
-              <li>{{ a }}</li>
-              {% endfor %}
-            </ul>
-            {% endif %}
-          </div>
-        </div>
-        {% endif %}
-      </div>
-      {% endif %}
     </div>
   </div>
 
@@ -164,6 +268,212 @@
       </form>
     </div>
   </div>
+
+  <!-- Place this just before </body> -->
+  <div id="timerModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm">
+      <h2 class="text-lg font-semibold mb-4">Set Auto Run Timer</h2>
+      <label class="block mb-2 text-sm font-medium">Frequency:</label>
+      <select id="frequency" class="w-full border rounded p-2 mb-4">
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+      </select>
+      <label class="block mb-2 text-sm font-medium">Time:</label>
+      <input type="time" id="runTime" class="w-full border rounded p-2 mb-4">
+      <div class="flex justify-end">
+        <button class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600" onclick="saveTimer()">Save</button>
+        <button class="ml-2 px-4 py-2 bg-gray-400 text-white rounded hover:bg-gray-500" onclick="closeTimer()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🔍 Anomalies Modal -->
+  <div id="anomaliesModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-xl p-6 max-w-2xl w-full shadow-lg relative">
+      <button id="closeAnomaliesModal" class="absolute top-2 right-2 text-gray-500 hover:text-red-500 text-xl">&times;</button>
+      <h2 class="text-xl font-semibold mb-4">Anomalies Detected</h2>
+      <pre id="anomaliesContent" class="whitespace-pre-wrap text-sm text-gray-700 max-h-[400px] overflow-y-auto"></pre>
+    </div>
+  </div>
+
+
+  <script>
+    const fileInput = document.getElementById('csv-file-input');
+    const uploadInfo = document.getElementById('upload-info');
+    const metadataPanel = document.getElementById('metadata-panel');
+    const metadataBtn = document.getElementById('metadata-button');
+    const continueBtn = document.getElementById('continue-button');
+    const schemaTextarea = document.getElementById('schema-textarea');
+
+    {% comment %} let lastSchema = ""; // Always updated with current textarea value {% endcomment %}
+    let lastSchema = sessionStorage.getItem("lastSchema") || "";
+    schemaTextarea.value = lastSchema;
+    let anomaliesSeen = false;
+    {% comment %} window.anomaliesData = ""; {% endcomment %}
+    {% comment %} console.log("Data from response:", data); {% endcomment %}
+    // On page load or after re-render (e.g. wrapped in setTimeout or called after DOM updates)
+    {% comment %} window.anomaliesData = sessionStorage.getItem("anomaliesData") || ""; {% endcomment %}
+
+    // Capture schema changes live
+    schemaTextarea.addEventListener('input', () => {
+      lastSchema = schemaTextarea.value;
+      sessionStorage.setItem("lastSchema", lastSchema);
+    });
+
+    // Highlight anomalies icon
+    function highlightAnomaliesIcon() {
+      const icon = document.getElementById("anomaliesBtn");
+      if (!anomaliesSeen) {
+        icon.classList.add("ring-4", "ring-red-500", "animate-pulse");
+      }
+    }
+
+    // Restore anomalies data from sessionStorage on page load
+    window.anomaliesData = sessionStorage.getItem("anomaliesData") || "";
+    anomaliesSeen = sessionStorage.getItem("anomaliesSeen") === "true";
+
+    // Only highlight again if data exists and hasn't been seen
+    if (window.anomaliesData && !anomaliesSeen) {
+      highlightAnomaliesIcon();
+    }
+
+    // Handle file upload
+    fileInput.addEventListener('change', function () {
+      sessionStorage.removeItem("lastSchema");  // reset stored schema
+      const file = this.files[0];
+      if (!file) return;
+
+      uploadInfo.innerHTML = `<span class="text-yellow-500 font-bold">⏳ Uploading...</span>`;
+
+      const formData = new FormData();
+      formData.append('csv_file', file);
+
+      fetch('/upload-csv/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}'
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.message) {
+          uploadInfo.innerHTML = `
+            <span class="inline-block mr-2 font-bold">${data.message}</span>
+            <a href="${data.download_url}" download title="Download cleaned CSV">
+              <svg xmlns="http://www.w3.org/2000/svg" class="inline w-5 h-5 text-green-700 hover:text-green-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
+              </svg>
+            </a>
+          `;
+
+          if (data['table-schema']) {
+            lastSchema = data['table-schema'];
+            schemaTextarea.value = lastSchema;
+            metadataPanel.classList.remove("hidden");
+          }
+
+          if (data['Anomalies'] && data['Anomalies'].trim() !== "") {
+            window.anomaliesData = data['Anomalies'];
+            sessionStorage.setItem("anomaliesData", data['Anomalies']);
+            anomaliesSeen = false;  // <--- reset this so new highlight works
+            highlightAnomaliesIcon();
+          }
+        } else {
+          uploadInfo.innerHTML = `<span class="text-red-500">⚠️ Upload failed.</span>`;
+        }
+      })
+      .catch(() => {
+        uploadInfo.innerHTML = `<span class="text-red-500">❌ Upload error.</span>`;
+      });
+    });
+
+    // Metadata button toggle
+    metadataBtn.addEventListener('click', () => {
+      schemaTextarea.value = lastSchema;
+      metadataPanel.classList.remove("hidden");
+    });
+
+    // Submit updated schema
+    continueBtn.addEventListener('click', () => {
+      lastSchema = schemaTextarea.value;
+      sessionStorage.setItem("lastSchema", lastSchema); 
+      metadataPanel.classList.add("hidden");
+
+      fetch('/submit-schema/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({ updated_schema: lastSchema })
+      })
+      .then(res => res.json())
+      .then(data => {
+        console.log("Schema submitted:", data);
+      })
+      .catch(error => {
+        console.error("Error submitting schema:", error);
+      });
+    });
+
+    // Handle anomalies icon click
+    document.getElementById("anomaliesBtn").addEventListener("click", () => {
+      const icon = document.getElementById("anomaliesBtn");
+      const modal = document.getElementById("anomaliesModal");
+      const content = document.getElementById("anomaliesContent");
+
+      // Remove highlight
+      icon.classList.remove("ring-4", "ring-red-500", "animate-pulse");
+      anomaliesSeen = true;
+      sessionStorage.setItem("anomaliesSeen", "true");
+
+      // Show modal if anomalies exist
+      if (window.anomaliesData) {
+        content.textContent = window.anomaliesData;
+        modal.classList.remove("hidden");
+      }
+    });
+
+    // Close anomalies modal
+    document.getElementById("closeAnomaliesModal").addEventListener("click", () => {
+      document.getElementById("anomaliesModal").classList.add("hidden");
+    });
+  </script>
+
+
+
+
+  <script>
+    // Open modal
+    document.getElementById('autoRunBtn').addEventListener('click', () => {
+      document.getElementById('timerModal').classList.remove('hidden');
+    });
+
+    // Close modal
+    function closeTimer() {
+      document.getElementById('timerModal').classList.add('hidden');
+    }
+
+    // Save selected schedule
+    function saveTimer() {
+      const frequency = document.getElementById('frequency').value;
+      const time = document.getElementById('runTime').value;
+
+      if (!time) {
+        alert("Please select a time.");
+        return;
+      }
+
+      alert(`✅ Auto run scheduled: ${frequency} at ${time}`);
+      closeTimer();
+
+      // TODO: send data to backend via fetch/AJAX if needed
+    }
+  </script>
+
+
 
   <script>
     const chatbotToggle = document.getElementById('chatbot-toggle');
@@ -290,11 +600,44 @@
 
 
 
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const downloadBtn = document.getElementById('downloadReportBtn');
+      if (downloadBtn) {
+        downloadBtn.addEventListener('click', function () {
+          const reportSection = document.getElementById('reportSection');
+
+          // Optional: Show spinner if needed
+          const spinner = document.getElementById('spinnerWrapper');
+          if (spinner) spinner.classList.remove('hidden');
+
+          // Wait a moment to ensure layout settles
+          setTimeout(() => {
+            html2canvas(reportSection, {
+              scale: 2,
+              useCORS: true
+            }).then(canvas => {
+              // Hide spinner
+              if (spinner) spinner.classList.add('hidden');
+
+              // Trigger PNG download
+              const link = document.createElement('a');
+              link.download = 'dashboard-report.png';
+              link.href = canvas.toDataURL('image/png');
+              link.click();
+            });
+          }, 300); // slight delay for layout
+        });
+      }
+    });
+  </script>
+
 
   <!-- Sidebar Toggle Script + Plot Resize -->
   <script>
     const toggleBtn = document.getElementById("toggleSidebarBtn");
     const sidebar = document.getElementById("sidebar");
+    const container = document.getElementById('dashboardContainer');
     
     function resizeAllPlots() {
       const ids = ['plot-0', 'plot-1', 'plot-2'];
@@ -312,6 +655,9 @@
       sidebar.classList.toggle("w-0");
       sidebar.classList.toggle("p-4");
 
+      // ✅ Add or remove the "sidebar-collapsed" class
+      container.classList.toggle("sidebar-collapsed");
+
       setTimeout(() => {
         requestAnimationFrame(resizeAllPlots);
       }, 350); // Give layout time to settle
@@ -319,11 +665,16 @@
     </script>
 
 
-  <!-- CSV Upload Script -->
-  <script>
-    document.getElementById('csv-file-input').addEventListener('change', function () {
+  {% comment %} <script>
+    const input = document.getElementById('csv-file-input');
+    const uploadInfo = document.getElementById('upload-info');
+
+    input.addEventListener('change', function () {
       const file = this.files[0];
       if (!file) return;
+
+      // Show "Uploading..." message
+      uploadInfo.innerHTML = `<span class="text-yellow-500 font-bold">⏳ Uploading...</span>`;
 
       const formData = new FormData();
       formData.append('csv_file', file);
@@ -338,23 +689,34 @@
       .then(res => res.json())
       .then(data => {
         if (data.message) {
-          document.getElementById('upload-info').innerHTML = `
-            <span class="inline-block mr-2">${data.message}</span>
+          uploadInfo.innerHTML = `
+            <span class="inline-block mr-2 font-bold">${data.message}</span>
             <a href="${data.download_url}" download title="Download cleaned CSV">
               <svg xmlns="http://www.w3.org/2000/svg" class="inline w-5 h-5 text-green-700 hover:text-green-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
               </svg>
             </a>
           `;
+
+          // ✅ Show schema modal if schema is present
+          if (data['table-schema']) {
+            lastSchema = data['table-schema'];
+            schemaTextarea.value = lastSchema;
+            modal.classList.remove("hidden");
+          }
+
         } else {
-          document.getElementById('upload-info').innerText = "⚠️ Upload failed.";
+          uploadInfo.innerHTML = `<span class="text-red-500">⚠️ Upload failed.</span>`;
         }
       })
+
       .catch(err => {
-        document.getElementById('upload-info').innerText = "❌ Upload error.";
+        uploadInfo.innerHTML = `<span class="text-red-500">❌ Upload error.</span>`;
       });
     });
-  </script>
+  </script> {% endcomment %}
+
+
 
   <!-- Clickable Past Questions -->
   <script>
@@ -365,6 +727,68 @@
       });
     });
   </script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const submitBtn = document.getElementById('submitBtn');
+      if (submitBtn) {
+        submitBtn.addEventListener('click', function () {
+          // Hide welcome message
+          const welcome = document.getElementById('welcomeMessage');
+          if (welcome) welcome.style.display = 'none';
+
+          // Show spinner
+          const spinner = document.getElementById('spinnerWrapper');
+          if (spinner) spinner.classList.remove('hidden');
+        });
+      }
+    });
+  </script>
+
+
+
+
+
+
+
+
+  <script>
+    const toggleSidebarBtn = document.getElementById("toggleSidebarBtn");
+    const sidebar = document.getElementById("sidebar");  // ID of your sidebar div
+    const topBar = document.getElementById("topBar");
+
+    let sidebarExpanded = true;
+
+    toggleSidebarBtn.addEventListener("click", () => {
+      sidebarExpanded = !sidebarExpanded;
+
+      // Sidebar toggle classes
+      if (sidebarExpanded) {
+        sidebar.classList.remove("w-16");
+        sidebar.classList.add("w-64");
+
+        topBar.classList.remove("ml-16");
+        topBar.classList.add("ml-64");
+      } else {
+        sidebar.classList.remove("w-64");
+        sidebar.classList.add("w-16");
+
+        topBar.classList.remove("ml-64");
+        topBar.classList.add("ml-16");
+      }
+    });
+
+    // Set initial state on page load
+    window.addEventListener("DOMContentLoaded", () => {
+      if (sidebar.classList.contains("w-64")) {
+        topBar.classList.add("ml-64");
+      } else {
+        topBar.classList.add("ml-16");
+      }
+    });
+  </script>
+
+
 
 </body>
 </html>

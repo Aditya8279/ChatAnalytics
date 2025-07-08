@@ -1,11 +1,14 @@
 from django.shortcuts import render
-from .llm_pipeline import generate_greet_output, classification_agent, break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
+from .llm_pipeline import anomalies_agent, data_identifier_agent, table_schema_agent, generate_greet_output, classification_agent, break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
 import pandas as pd
+from pandas.api.types import is_period_dtype
 import numpy as np
 import requests
 import time
 import json
 import openai
+
+import plotly.express as px
 
 import difflib
 import re
@@ -26,6 +29,8 @@ import tempfile
 from datetime import datetime
 import os
 # from django.http import HttpResponse
+
+from sklearn.ensemble import IsolationForest
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -83,25 +88,47 @@ def extract_json_from_response(response):
     raise TypeError("❌ Model response must be a string or dict.")
 
 # Function to remove unwanted special characters except ., space, and -
-def remove_special_chars(s):
-    if isinstance(s, str):
-        return re.sub(r"[^A-Za-z0-9.\s\-]", "", s)
-    return s
+# def remove_special_chars(s):
+#     if isinstance(s, str):
+#         return re.sub(r"[^A-Za-z0-9.\s\-]", "", s)
+#     return s
+
+# Precompile regex pattern once
+special_char_pattern = re.compile(r"[^A-Za-z0-9.\s\-]")
+
+def remove_special_chars_series(series):
+    return series.astype(str).str.replace(special_char_pattern, "", regex=True)
+
+def clean_special_chars(df):
+    obj_cols = df.select_dtypes(include='object').columns
+    df[obj_cols] = df[obj_cols].apply(remove_special_chars_series)
+    return df
 
 # Sample: assume df is your DataFrame
-def convert_string_numerics(df):
-    for col in df.columns:
-        if df[col].dtype == 'object':
-            # Try converting to numeric, coerce errors (e.g., '£123.45' or '57.85%')
-            cleaned_col = (
-                df[col]
-                .astype(str)
-                # .str.replace(r'[£,%]', '', regex=True)
-                .str.strip()
-            )
-            converted = pd.to_numeric(cleaned_col, errors='coerce')
+# def convert_string_numerics(df):
+#     for col in df.columns:
+#         if df[col].dtype == 'object':
+#             # Try converting to numeric, coerce errors (e.g., '£123.45' or '57.85%')
+#             cleaned_col = (
+#                 df[col]
+#                 .astype(str)
+#                 # .str.replace(r'[£,%]', '', regex=True)
+#                 .str.strip()
+#             )
+#             converted = pd.to_numeric(cleaned_col, errors='coerce')
 
-            # Only update if it actually results in valid numeric values
+#             # Only update if it actually results in valid numeric values
+#             if converted.notna().sum() > 0:
+#                 df[col] = converted
+#     return df
+
+def convert_string_numerics_fast(df):
+    obj_cols = df.select_dtypes(include='object').columns
+    for col in obj_cols:
+        s = df[col].astype(str).str.strip()
+        # Try converting only if at least one value looks numeric
+        if s.str.match(r"^[\d\.\-]+$").sum() > 0:
+            converted = pd.to_numeric(s, errors='coerce')
             if converted.notna().sum() > 0:
                 df[col] = converted
     return df
@@ -218,37 +245,55 @@ def inject_plot_formatting(code: str, height: int = 300) -> str:
     """
     Inject layout and HTML rendering into Plotly figure code.
     Also removes 'fig.show()' if present.
-
-    Parameters:
-    - code (str): Python code string containing the Plotly figure.
-    - height (int): Desired plot height.
-
-    Returns:
-    - str: Modified Python code with layout and HTML export.
     """
     lines = code.strip().splitlines()
     modified_lines = []
+    
+    fig_started = False
+    fig_complete = False
+    fig_block = []
+    is_line_plot = False
 
-    fig_assigned = False
     for line in lines:
         stripped = line.strip()
-        
-        # Skip fig.show() line
+
+        # Skip fig.show()
         if stripped.startswith("fig.show()"):
             continue
-        
-        modified_lines.append(line)
 
-        if not fig_assigned and stripped.startswith("fig = "):
-            # Insert formatting after first fig assignment
-            modified_lines.append(
-                f"fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True, height={height}, "
-                f"xaxis=dict(showgrid=False, showticklabels=False), yaxis=dict(showgrid=False, showticklabels=False))"
-            )
-            modified_lines.append(
-                'plot_html = fig.to_html(full_html=False, include_plotlyjs=False, config={"displayModeBar": False, "responsive": True})'
-            )
-            fig_assigned = True
+        # Detect start of fig assignment
+        if not fig_started and stripped.startswith("fig = "):
+            fig_started = True
+
+        # Check if this is a line plot
+        if "px.line" in line:
+            is_line_plot = True
+
+        if fig_started and not fig_complete:
+            fig_block.append(line)
+            if stripped.endswith(")") or stripped.endswith("),"):  # function call end
+                fig_complete = True
+                modified_lines.extend(fig_block)
+
+                # Add dot markers for line plots
+                if is_line_plot:
+                    modified_lines.append('fig.update_traces(mode="lines+markers")')
+
+                # Inject formatting
+                modified_lines.append(
+                    f"fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True, height={height}, "
+                    f"plot_bgcolor='white', paper_bgcolor='white', "
+                    f"xaxis=dict(showgrid=False, showticklabels=False), "
+                    f"yaxis=dict(showgrid=True, showticklabels=True, gridcolor='lightgrey', tickformat='.2~s'))"
+                )
+                modified_lines.append(
+                    'plot_html = fig.to_html(full_html=False, include_plotlyjs=False, '
+                    'config={"displayModeBar": False, "responsive": True})'
+                )
+        elif not fig_started:
+            modified_lines.append(line)
+        elif fig_complete:
+            modified_lines.append(line)
 
     return "\n".join(modified_lines)
 
@@ -295,6 +340,165 @@ def insert_user_question(sub_questions, user_question, analysis_info):
     sub_questions.insert(insert_index, user_question)
     return sub_questions
 
+def human_format(value):
+    """
+    Converts a numeric value to a human-readable string (e.g. 1,250,000 → 1.25M).
+    Leaves non-numeric values unchanged.
+    """
+    try:
+        num = float(value)
+    except (ValueError, TypeError):
+        return value  # Not a number
+
+    abs_num = abs(num)
+
+    if abs_num < 1_000:
+        return f"{num:.2f}"
+    elif abs_num < 1_000_000:
+        return f"{num / 1_000:.2f}K"
+    elif abs_num < 1_000_000_000:
+        return f"{num / 1_000_000:.2f}M"
+    elif abs_num < 1_000_000_000_000:
+        return f"{num / 1_000_000_000:.2f}B"
+    else:
+        return f"{num / 1_000_000_000_000:.2f}T"
+    
+
+def detect_auto_anomalies(df, model_output, iqr_multiplier=4.5, iso_contamination=0.005):
+    """
+    Automatically detect anomalies in either time series or general tabular data.
+
+    Parameters:
+    - df: Input DataFrame
+    - model_output: JSON dict from LLM containing keys:
+        - is_timeseries: bool
+        - datetime_column: str
+        - target_columns: list of str
+        - frequency: str (optional, for future tuning)
+
+    Returns:
+    - result_df: DataFrame with anomalies and 'Anomaly Reason' column
+    - anomaly_flags: Boolean Series marking anomalies
+    """
+    
+    is_timeseries = model_output.get("is_timeseries", False)
+    target_cols = model_output.get("target_columns", [])
+
+    # if not target_cols or (is_timeseries and not date_col):
+    #     return {"error": "Model output missing required information."}, pd.Series([False] * len(df), index=df.index)
+
+    df = df.copy()
+
+    # ---------- TIME SERIES HANDLING ----------
+    if is_timeseries:
+        
+        date_col = model_output.get("datetime_column")
+        freq_map = {
+            'daily': 7,        # 7-day window
+            'hourly': 24,      # 24-hour window
+            'weekly': 4,       # 4-week window (approx. 1 month)
+            'monthly': 12,     # 12-month window (1 year)
+            'quarterly': 4,    # 4 quarters (1 year)
+            'yearly': 2        # 3-year window
+        }
+
+        detected_freq = model_output.get("frequency")
+        # detected_freq = "Monthly"
+        window = freq_map.get(detected_freq, 7)  # default to 7 if not found
+
+
+        
+        df[date_col] = pd.to_datetime(df[date_col].astype(str), errors='coerce')
+        df = df.dropna(subset=[date_col])
+        df = df.sort_values(by=date_col)
+
+        # result_df = df.copy()
+        # result_df["Anomaly Reason"] = ""
+
+        anomaly_descriptions = []
+
+        for col in target_cols:
+            if col not in df.columns or not pd.api.types.is_numeric_dtype(df[col]):
+                continue
+            temp_df = df[[date_col, col]].copy()
+            temp_df['rolling_mean'] = temp_df[col].rolling(window=window, min_periods=1).mean()
+            temp_df['rolling_std'] = temp_df[col].rolling(window=window, min_periods=1).std()
+            temp_df['z_score'] = (temp_df[col] - temp_df['rolling_mean']) / temp_df['rolling_std']
+            temp_df['anomaly'] = abs(temp_df['z_score']) > 3
+
+            # result_df.loc[temp_df['anomaly'], "Anomaly Reason"] += f"TimeSeries Z-Score: {col}; "
+            # Add both column name and value to the anomaly reason
+            for idx in temp_df.index[temp_df['anomaly']]:
+                date_val = temp_df.loc[idx, date_col]
+                value = temp_df.loc[idx, col]
+                # result_df.at[idx, "Anomaly Reason"] += (
+                #     f"TimeSeries Z-Score (window={window}): {col}={value} on date column_name:'{date_col}'=column_value:'{date_val}'; "
+                # )
+                description = (
+                    f"TimeSeries Z-Score (window={window}): {col}={value} on date column_name:'{date_col}'=column_value:'{date_val}';"
+                )
+                anomaly_descriptions.append(description)
+
+        # flags = result_df["Anomaly Reason"] != ""
+        # return result_df[flags], flags
+        return anomaly_descriptions
+
+    # ---------- NON-TIME SERIES HANDLING ----------
+    else:
+        numeric_df = df.select_dtypes(include='number')
+        if numeric_df.empty:
+            return ["No numeric columns for anomaly detection."]
+    
+        descriptions = []
+    
+        # --- IQR Detection ---
+        def iqr_anomaly_flags(df, multiplier):
+            flags = pd.Series([False] * len(df), index=df.index)
+            reasons = pd.Series([""] * len(df), index=df.index)
+            for col in df.columns:
+                Q1 = df[col].quantile(0.25)
+                Q3 = df[col].quantile(0.75)
+                IQR = Q3 - Q1
+                lower = Q1 - multiplier * IQR
+                upper = Q3 + multiplier * IQR
+                outliers = (df[col] < lower) | (df[col] > upper)
+                flags |= outliers
+                for idx in df.index[outliers]:
+                    val = df.loc[idx, col]
+                    reasons[idx] += f"{col}: {val}; "
+            return flags, reasons
+    
+        # --- Isolation Forest Detection ---
+        def isolation_forest_flags(df, contamination):
+            clean_df = df.dropna()
+            model = IsolationForest(contamination=contamination, random_state=42)
+            preds = model.fit_predict(clean_df)
+            flags = pd.Series(False, index=df.index)
+            reasons = pd.Series([""] * len(df), index=df.index)
+            flags[clean_df.index] = preds == -1
+    
+            for idx in clean_df[flags[clean_df.index]].index:
+                diffs = (clean_df.loc[idx] - clean_df.median()).abs()
+                top_features = diffs.sort_values(ascending=False).head(3).index.tolist()
+                reason_parts = [f"{col}: {df.loc[idx, col]}" for col in top_features]
+                reasons[idx] = "IF: " + ", ".join(reason_parts)
+            return flags, reasons
+    
+        # Run both detections
+        flags_iqr, reasons_iqr = iqr_anomaly_flags(numeric_df, iqr_multiplier)
+        flags_if, reasons_if = isolation_forest_flags(numeric_df, iso_contamination)
+        combined_flags = flags_iqr | flags_if
+    
+        for idx in df.index[combined_flags]:
+            parts = []
+            if flags_iqr[idx]:
+                parts.append("IQR: " + reasons_iqr[idx].strip())
+            if flags_if[idx]:
+                parts.append(reasons_if[idx].strip())
+            description = " | ".join(parts)
+            descriptions.append(description)
+    
+        return descriptions
 
 @csrf_exempt
 def upload_csv(request):
@@ -302,28 +506,51 @@ def upload_csv(request):
         csv_file = request.FILES.get('csv_file')
 
         if csv_file:
-            # Step 1: Read and store CSV in session
+            # Read and store CSV in session
             df = pd.read_csv(csv_file, dtype=str, low_memory=False)
-            # Step 1: Drop columns with > 50% missing values
+            # Drop columns with > 50% missing values
             df = df.loc[:, df.isnull().mean() <= 0.5]
+            df = df.dropna()  # drop rows with NaNs
 
-            # Step 2: Fill remaining missing values
-            for col in df.columns:
-                # if pd.api.types.is_numeric_dtype(df[col]):
-                #     df[col] = df[col].fillna(0)
-                # else:
-                df[col] = df[col].fillna(pd.NA)  # or None
+            # # Step 2: Fill remaining missing values
+            # for col in df.columns:
+            #     # if pd.api.types.is_numeric_dtype(df[col]):
+            #     #     df[col] = df[col].fillna(0)
+            #     # else:
+            #     df[col] = df[col].fillna(pd.NA)  # or None
+
+            # Remove special characters from object columns only
+            df = clean_special_chars(df)
+            #Convert eligible object columns to numerics
+            df = convert_string_numerics_fast(df)
+            metadata = extract_metadata(df)
 
             request.session["csv_data"] = df.to_json()
             request.session["columns"] = list(df.columns)
+            request.session["metadata"] = metadata
+
+            meta_data = f"Metadata:\n{metadata}"
+            logging.info(f"=== meta_data ===\n\n{meta_data}")
+            table_schema_agent_response = table_schema_agent(meta_data)
+            logging.info(f"=== table_schema_agent_response ===\n\n{table_schema_agent_response}")
+            
+            data_identifier_agent_response = data_identifier_agent(meta_data)
+            data_identifier_agent_response = json.loads(data_identifier_agent_response)
+
+            anomalies_df = detect_auto_anomalies(df, data_identifier_agent_response)
+
+            anomalies_agent_response = anomalies_agent(str(anomalies_df[-3:]))
+            logging.info(f"=== anomalies_agent_response ===\n\n{anomalies_agent_response}")
 
             # Save to a file for download
             download_path = os.path.join(settings.MEDIA_ROOT, "cleaned_data.csv")
             df.to_csv(download_path, index=False)
 
             return JsonResponse({
-                "message": f"✅ The final dataset contains {df.shape[1]} columns and {df.shape[0]} rows after preprocessing.",
-                "download_url": f"{settings.MEDIA_URL}cleaned_data.csv"
+                "message": f"✅ The {csv_file.name} dataset contains {df.shape[1]} columns and {df.shape[0]} rows after preprocessing.",
+                "download_url": f"{settings.MEDIA_URL}cleaned_data.csv",
+                "table-schema": table_schema_agent_response.strip(),
+                "Anomalies":anomalies_agent_response
             })
 
         elif "csv_data" in request.session:
@@ -332,6 +559,25 @@ def upload_csv(request):
         else:
             df = None
             return JsonResponse({"error": "Invalid request"}, status=400)
+        
+def submit_schema(request):
+    if request.method == 'POST':
+        try:
+            body = request.body.decode('utf-8')
+            logging.info(f"Raw body received:\n{body}")
+
+            if body:
+
+                data = json.loads(body)
+                updated_schema = data.get('updated_schema')
+                request.session["table_schema"] = updated_schema
+
+                logging.info(f"=== Received updated schema: ===\n\n{updated_schema}")
+                return JsonResponse({'status': 'ok'})
+
+        except json.JSONDecodeError:
+            logging.error("Invalid JSON received.")
+            return JsonResponse({'status': 'Error'})
 
 def dashboard_view(request):
     context = {}
@@ -376,14 +622,17 @@ def dashboard_view(request):
                 "past_questions": past_questions
             })
         
-        df = df.applymap(remove_special_chars)
-        df = convert_string_numerics(df)
-        metadata = extract_metadata(df)
+        # df = df.applymap(remove_special_chars)
+        # df = convert_string_numerics(df)
 
-        analysis_info = classification_agent(user_question)
-        logging.info(f"=== classification_agent output ===\n\n{analysis_info}")
-        # Parse the string into a dictionary
-        analysis_info = json.loads(analysis_info)
+        metadata = request.session["metadata"]
+        table_schema = request.session["table_schema"]
+
+        logging.info(f"=== table_schema ===\n\n{table_schema}")
+    
+        # logging.info(f"=== classification_agent output ===\n\n{analysis_info}")
+        # # Parse the string into a dictionary
+        # analysis_info = json.loads(analysis_info)
 
         user_query = f"User Question: {user_question}\n\nMetadata:\n{metadata}"
 
@@ -429,6 +678,8 @@ def dashboard_view(request):
                     exec(python_code, {}, local_vars)
                     result = local_vars.get("result")
 
+                    result = safe_reset_index(result)
+
                     # filtered_data[i] = result
                     if result is not None:
                         break
@@ -457,11 +708,17 @@ def dashboard_view(request):
                 # else:
                 #     result = pd.DataFrame(result).reset_index()
 
-                result = safe_reset_index(result)
-                index_cols = ['index', 'Unnamed: 0']
-                for col in index_cols:
-                    if col in result.columns:
-                        result = result.drop(columns=col)
+                # result = safe_reset_index(result)
+                # index_cols = ['index', 'Unnamed: 0']
+                # for col in index_cols:
+                #     if col in result.columns:
+                #         result = result.drop(columns=col)
+
+                for col in result.columns:
+                    if is_period_dtype(result[col]):
+                        result[col] = result[col].astype(str)
+
+                result.loc[:, result.select_dtypes(include=['float', 'float64']).columns] = result.select_dtypes(include=['float', 'float64']).round(2)
 
                 result_head = result.head(14)
 
@@ -479,15 +736,18 @@ def dashboard_view(request):
                 
                 # filter_result[i] = result
 
-                if isinstance(result, (int, float)):
+                if isinstance(result, (int, float, np.integer, np.floating)):
+                    logging.info(f"=== result variable type (Q{i+1}, Attempt {attempt+1}) ===\n{type(result)}\n\n")
                     result = round(result, 2)
                     summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
                     description = generate_description(summary_prompt)
                     description_list[i] = description
+                    result = human_format(result)
                     filter_result[i] = result
                     # filter_result.append(result)
                 else:
                     if not isinstance(result, (pd.DataFrame, pd.Series)):
+                        logging.info(f"=== result variable type (Q{i+1}, Attempt {attempt+1}) ===\n{type(result)}\n\n")
                         summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
                         description = generate_description(summary_prompt)
                         description_list[i] = description
@@ -518,6 +778,7 @@ def dashboard_view(request):
                         logging.info(f"=== MODEL 3 Dashboard Plot Code (Q{i+1}, Attempt {attempt+1}) ===\n{viz_code_response}\n\n")
                         viz_code_response = extract_json_from_response(viz_code_response)
                         viz_code_response = inject_plot_formatting(viz_code_response, height=280)
+                        logging.info(f"=== MODEL 3 Dashboard local_vars access (Q{i+1}, Attempt {attempt+1}) ===\n{local_vars}\n\n")
                         exec(viz_code_response, {}, local_vars)
 
                         # Extract HTML from variable (assume model always uses `plot_html`)
