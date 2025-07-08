@@ -306,13 +306,19 @@
     const continueBtn = document.getElementById('continue-button');
     const schemaTextarea = document.getElementById('schema-textarea');
 
-    let lastSchema = ""; // Always updated with current textarea value
+    {% comment %} let lastSchema = ""; // Always updated with current textarea value {% endcomment %}
+    let lastSchema = sessionStorage.getItem("lastSchema") || "";
+    schemaTextarea.value = lastSchema;
     let anomaliesSeen = false;
-    window.anomaliesData = "";
+    {% comment %} window.anomaliesData = ""; {% endcomment %}
+    {% comment %} console.log("Data from response:", data); {% endcomment %}
+    // On page load or after re-render (e.g. wrapped in setTimeout or called after DOM updates)
+    {% comment %} window.anomaliesData = sessionStorage.getItem("anomaliesData") || ""; {% endcomment %}
 
     // Capture schema changes live
     schemaTextarea.addEventListener('input', () => {
       lastSchema = schemaTextarea.value;
+      sessionStorage.setItem("lastSchema", lastSchema);
     });
 
     // Highlight anomalies icon
@@ -323,8 +329,18 @@
       }
     }
 
+    // Restore anomalies data from sessionStorage on page load
+    window.anomaliesData = sessionStorage.getItem("anomaliesData") || "";
+    anomaliesSeen = sessionStorage.getItem("anomaliesSeen") === "true";
+
+    // Only highlight again if data exists and hasn't been seen
+    if (window.anomaliesData && !anomaliesSeen) {
+      highlightAnomaliesIcon();
+    }
+
     // Handle file upload
     fileInput.addEventListener('change', function () {
+      sessionStorage.removeItem("lastSchema");  // reset stored schema
       const file = this.files[0];
       if (!file) return;
 
@@ -360,6 +376,7 @@
 
           if (data['Anomalies'] && data['Anomalies'].trim() !== "") {
             window.anomaliesData = data['Anomalies'];
+            sessionStorage.setItem("anomaliesData", data['Anomalies']);
             anomaliesSeen = false;  // <--- reset this so new highlight works
             highlightAnomaliesIcon();
           }
@@ -381,6 +398,7 @@
     // Submit updated schema
     continueBtn.addEventListener('click', () => {
       lastSchema = schemaTextarea.value;
+      sessionStorage.setItem("lastSchema", lastSchema); 
       metadataPanel.classList.add("hidden");
 
       fetch('/submit-schema/', {
@@ -409,6 +427,7 @@
       // Remove highlight
       icon.classList.remove("ring-4", "ring-red-500", "animate-pulse");
       anomaliesSeen = true;
+      sessionStorage.setItem("anomaliesSeen", "true");
 
       // Show modal if anomalies exist
       if (window.anomaliesData) {
@@ -646,7 +665,7 @@
     </script>
 
 
-  <script>
+  {% comment %} <script>
     const input = document.getElementById('csv-file-input');
     const uploadInfo = document.getElementById('upload-info');
 
@@ -695,7 +714,7 @@
         uploadInfo.innerHTML = `<span class="text-red-500">❌ Upload error.</span>`;
       });
     });
-  </script>
+  </script> {% endcomment %}
 
 
 
