@@ -177,18 +177,34 @@
         {% endif %}
 
 
-        <!-- All Plots Section -->
         {% if plot_images %}
           <div class="grid grid-cols-2 gap-4 mb-8">
             {% for plot in plot_images %}
-              <div id="plot-{{ forloop.counter0 }}" class="bg-white p-4 rounded shadow">
-                {{ plot|safe }}
+              <div id="plot-{{ forloop.counter0 }}" class="relative bg-white p-4 rounded shadow">
+
+                <div class="relative bg-white p-4 rounded shadow">
+
+                  <!-- X (Remove) Button -->
+                  <form method="POST" action="{% url 'dashboard' %}" class="absolute -top-2 -right-2 z-10">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="remove_plot">
+                    <input type="hidden" name="plot_index" value="{{ forloop.counter0 }}">
+                    <button type="submit" class="text-red-500 hover:text-red-700 text-xl font-bold bg-white rounded-full px-2 py-0.5 shadow-md">
+                      &times;
+                    </button>
+                  </form>
+
+                  <!-- Plot content -->
+                  {{ plot|safe }}
+                </div>
+
               </div>
             {% endfor %}
           </div>
         {% endif %}
 
-        <!-- Final Summary Section (detached) -->
+
+        <!-- Final Summary Section -->
         {% if final_summary %}
           <div class="bg-white p-4 rounded shadow mb-6">
             <h3 class="text-lg font-semibold text-gray-800 mb-2">Final Summary</h3>

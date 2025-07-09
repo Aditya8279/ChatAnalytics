@@ -579,33 +579,49 @@ def dashboard_view(request):
 
         # Load from session if exists
         plot_image = request.session.get('plot_images', [])
-        logging.info(f"=== plot_image ===\n\n{plot_image}")
+        # logging.info(f"=== plot_image ===\n\n{plot_image}")
         top_insights = request.session.get('top_insights', [])
-        logging.info(f"=== top_insights ===\n\n{top_insights}")
+        # logging.info(f"=== top_insights ===\n\n{top_insights}")
         combined_final_summary = request.session.get('final_summary', None)
-        logging.info(f"=== combined_final_summary ===\n\n{combined_final_summary}")
+        # logging.info(f"=== combined_final_summary ===\n\n{combined_final_summary}")
+        # ✅ Retrieve the existing list from session or initialize empty list
+        past_questions = request.session.get("past_questions", [])
 
 
         user_question = request.POST.get('user_query', '')
         plot_question = request.POST.get('plot_question', '')
-        logging.info(f"=== plot_question ===\n\n{plot_question}")
+        action = request.POST.get('action')
+        # logging.info(f"=== plot_question ===\n\n{plot_question}")
 
         metadata = request.session["metadata"]
         table_schema = request.session["table_schema"]
+        
 
         logging.info(f"=== table_schema ===\n\n{table_schema}")
         
 
         # ✅ Add the new question if it's not empty
         if user_question.strip():
-            # ✅ Retrieve the existing list from session or initialize empty list
-            past_questions = request.session.get("past_questions", [])
             # past_questions.append(user_question)
             past_questions.insert(0, user_question)
             request.session["past_questions"] = past_questions  # ✅ Save back to session
         elif plot_question.strip():
             user_question = plot_question
             sub_questions = [user_question]
+        elif action == 'remove_plot':
+            index = int(request.POST.get('plot_index', -1))
+            if 0 <= index < len(plot_image):
+                plot_image.pop(index)
+                request.session['plot_images'] = plot_image
+
+            context = {
+                "past_questions": past_questions,  # list of previous questions
+                "top_insights": top_insights[:5],
+                "plot_images": plot_image,
+                "final_summary":combined_final_summary
+            }
+                
+            return render(request, 'dashboard.html', context)
 
         # ✅ Load preprocessed DataFrame from session
         if "csv_data" in request.session:
@@ -886,14 +902,21 @@ def chatbot_view(request):
                 uploaded_json = request.session.get('uploaded_data')
                 if uploaded_json:
                     df = pd.read_json(uploaded_json)
+                    # Remove special characters from object columns only
+                    df = clean_special_chars(df)
+                    #Convert eligible object columns to numerics
+                    df = convert_string_numerics_fast(df)
+                    metadata = extract_metadata(df)
                 elif 'csv_data' in request.session:
                     df = pd.read_json(request.session["csv_data"])
+                    metadata = request.session["metadata"]
+                    # df = pd.read_json(request.session["csv_data"])
                 else:
                     return JsonResponse({'reply': "No dataset found. Please upload a CSV first."})
 
-                df = df.applymap(remove_special_chars)
-                df = convert_string_numerics(df)
-                metadata = extract_metadata(df)
+                # df = df.applymap(remove_special_chars)
+                # df = convert_string_numerics(df)
+                # metadata = extract_metadata(df)
 
                 # ✅ Load and update chat history from session
                 chat_history = request.session.get("chat_history", [])
