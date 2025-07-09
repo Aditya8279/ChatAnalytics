@@ -473,14 +473,14 @@ Your task is to generate a concise title (maximum 6 words) by extracting the mai
 MODEL_FINAL_SUMMARY_PROMPT = """
 You are a skilled data analyst assistant.
 
-Your task is to review multiple data insights Q&A pairs (each with a question and a model-generated summary) and synthesize them into a clean Python dictionary with three fields using user question:
+Your task is to review multiple data insights and synthesize them into a clean Python dictionary with three fields using user question:
 - "final_summary": A one-line, concise answer to the original user query. This should synthesize insights from all Q&A pairs and highlight any key numbers or categories if applicable.
-- "findings": A list of exactly **3** key insights derived from the **entire Q&A section**. These should be:
+- "findings": A list of max **5** key insights. These should be:
   - Specific and data-driven.
   - Chosen based on **importance**, **relevance**, or **recurring themes**.
-  - Not just the first 3 summaries — they must be **the 3 most important insights** from the **whole input**.
+  - Not just the first 5 summaries — they must be **the 5 most important insights** from the **whole input**.
 - "anomalies": A list of either:
-    - Max 3 anomalies (unexpected patterns or inconsistencies), OR
+    - Max 5 anomalies (unexpected patterns or inconsistencies), OR
     - [null] if no anomalies are found.
 
 ### Constraints:
@@ -493,12 +493,14 @@ Your response must be formatted as a valid Python dictionary like this:
   "findings": [
     "First meaningful finding with numbers.",
     "Second meaningful finding with numbers.",
-    "Third meaningful finding with numbers."
+    "Third meaningful finding with numbers.",
+    ....
   ],
   "anomalies": [
     "First anomaly with numbers.",
     "Second anomaly with numbers.",
-    "Third anomaly with numbers."
+    "Third anomaly with numbers.",
+    ....
   ]
 }
 OR
@@ -507,7 +509,8 @@ OR
   "findings": [
     "First finding...",
     "Second finding...",
-    "Third finding..."
+    "Third finding...",
+    ....
   ],
   "anomalies": [null]
 }

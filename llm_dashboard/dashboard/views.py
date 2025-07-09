@@ -87,11 +87,6 @@ def extract_json_from_response(response):
 
     raise TypeError("❌ Model response must be a string or dict.")
 
-# Function to remove unwanted special characters except ., space, and -
-# def remove_special_chars(s):
-#     if isinstance(s, str):
-#         return re.sub(r"[^A-Za-z0-9.\s\-]", "", s)
-#     return s
 
 # Precompile regex pattern once
 special_char_pattern = re.compile(r"[^A-Za-z0-9.\s\-]")
@@ -104,23 +99,6 @@ def clean_special_chars(df):
     df[obj_cols] = df[obj_cols].apply(remove_special_chars_series)
     return df
 
-# Sample: assume df is your DataFrame
-# def convert_string_numerics(df):
-#     for col in df.columns:
-#         if df[col].dtype == 'object':
-#             # Try converting to numeric, coerce errors (e.g., '£123.45' or '57.85%')
-#             cleaned_col = (
-#                 df[col]
-#                 .astype(str)
-#                 # .str.replace(r'[£,%]', '', regex=True)
-#                 .str.strip()
-#             )
-#             converted = pd.to_numeric(cleaned_col, errors='coerce')
-
-#             # Only update if it actually results in valid numeric values
-#             if converted.notna().sum() > 0:
-#                 df[col] = converted
-#     return df
 
 def convert_string_numerics_fast(df):
     obj_cols = df.select_dtypes(include='object').columns
@@ -228,11 +206,6 @@ def replace_dataframe_var(code: str) -> str:
     replaced_code = re.sub(pattern, r"\1result\2", code)
     return replaced_code
 
-
-# with open("no_plot.png", "rb") as f:
-#     NO_PLOT_PLACEHOLDER = base64.b64encode(f.read()).decode("utf-8")
-
-# NO_PLOT_PLACEHOLDER = Image.open("no_plot.png")
 
 # Configure logging
 logging.basicConfig(
@@ -603,7 +576,25 @@ def dashboard_view(request):
     final_summary=None
 
     if request.method == 'POST':
+
+        # Load from session if exists
+        plot_image = request.session.get('plot_images', [])
+        logging.info(f"=== plot_image ===\n\n{plot_image}")
+        top_insights = request.session.get('top_insights', [])
+        logging.info(f"=== top_insights ===\n\n{top_insights}")
+        combined_final_summary = request.session.get('final_summary', None)
+        logging.info(f"=== combined_final_summary ===\n\n{combined_final_summary}")
+
+
         user_question = request.POST.get('user_query', '')
+        plot_question = request.POST.get('plot_question', '')
+        logging.info(f"=== plot_question ===\n\n{plot_question}")
+
+        metadata = request.session["metadata"]
+        table_schema = request.session["table_schema"]
+
+        logging.info(f"=== table_schema ===\n\n{table_schema}")
+        
 
         # ✅ Add the new question if it's not empty
         if user_question.strip():
@@ -612,6 +603,9 @@ def dashboard_view(request):
             # past_questions.append(user_question)
             past_questions.insert(0, user_question)
             request.session["past_questions"] = past_questions  # ✅ Save back to session
+        elif plot_question.strip():
+            user_question = plot_question
+            sub_questions = [user_question]
 
         # ✅ Load preprocessed DataFrame from session
         if "csv_data" in request.session:
@@ -624,22 +618,18 @@ def dashboard_view(request):
         
         # df = df.applymap(remove_special_chars)
         # df = convert_string_numerics(df)
-
-        metadata = request.session["metadata"]
-        table_schema = request.session["table_schema"]
-
-        logging.info(f"=== table_schema ===\n\n{table_schema}")
     
         # logging.info(f"=== classification_agent output ===\n\n{analysis_info}")
         # # Parse the string into a dictionary
         # analysis_info = json.loads(analysis_info)
 
-        user_query = f"User Question: {user_question}\n\nMetadata:\n{metadata}"
+        if not plot_question.strip():
+            user_query = f"User Question: {user_question}\n\nMetadata:\n{metadata}"
 
 
-        logging.info(f"=== user_query ===\n\n{user_query}")
-        sub_questions = break_into_subquestions(user_query)
-        logging.info(f"=== Break down questions ===\n\n{sub_questions}")
+            logging.info(f"=== user_query ===\n\n{user_query}")
+            sub_questions = break_into_subquestions(user_query)
+            logging.info(f"=== Break down questions ===\n\n{sub_questions}")
 
         
         # updated_list = insert_user_question(sub_questions, user_question, analysis_info)
@@ -701,7 +691,7 @@ def dashboard_view(request):
             
             
 
-            plot_image = None
+            # plot_image = None
             if isinstance(result, pd.DataFrame) and result.shape[0] > 1 and result.shape[1] > 1 or isinstance(result, pd.Series) and result.shape[0] > 1:
                 # if isinstance(result, (pd.DataFrame)):
                 #     result = safe_reset_index(result)
@@ -828,9 +818,19 @@ def dashboard_view(request):
         )
         combined_insights = f"What are the most important insights or anomalies based on User's Question?\n\nUser Question:{user_question}\n\ncombined Q&A:\n{combined_insights}"
         final_summary = generate_final_summary(combined_insights)
+
         logging.info(f"=== MODEL final summary Dashboard Output ===\n{final_summary}\n\n")
         # Convert string to Python dict
         final_summary = json.loads(final_summary)
+
+        if plot_question.strip():
+            plot_image.insert(0, plot_paths[0])
+            plot_paths = plot_image
+            final_context = str(combined_final_summary) + str(final_summary)
+            logging.info(f"=== MODEL final_context Dashboard Output ===\n{final_context}\n\n")
+            final_summary = generate_final_summary(final_context)
+            final_summary = json.loads(final_summary)
+
 
         # context = {
         #     'sub_questions': sub_questions,
@@ -847,10 +847,16 @@ def dashboard_view(request):
         # }
 
 
-        top_insights = []
-        for label, value, description in zip(q_title, filter_result, description_list):
-            if label and value:  # Exclude if either is None, empty, or falsy
-                top_insights.append({"label": label, "value": value, "description": description})
+        if not plot_question.strip():
+            top_insights = []
+            for label, value, description in zip(q_title, filter_result, description_list):
+                if label and value:  # Exclude if either is None, empty, or falsy
+                    top_insights.append({"label": label, "value": value, "description": description})
+
+    # Save to session
+    request.session['plot_images'] = plot_paths
+    request.session['final_summary'] = final_summary
+    request.session['top_insights'] = top_insights
 
     context = {
         "past_questions": past_questions,  # list of previous questions
