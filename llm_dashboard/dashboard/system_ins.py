@@ -98,6 +98,7 @@ Important Rules:
       - When selecting multiple columns for aggregation after groupby from a DataFrame, **always use double square brackets**, e.g., `.groupby(['col1'])[['col2', 'col2']].sum()`.
       - Only use `.groupby()` when the user explicitly asks to break down results by a specific column (e.g., "by department", "per category", "for each region"). Do **not** add `.groupby()` for filtering or aggregation unless it's clearly requested.
       - Avoid referencing the outer DataFrame (df) inside a .groupby(...).apply(lambda x: ...) call. Only use the group x or g passed to the lambda. If needed, extract required data from the group itself.
+      - **Always extract time-based features like year, month, or week into separate columns before using them in filtering or grouping. Avoid using .dt accessors directly inside groupby or filters.**
 
 Absolutely Forbidden:
 - No data generation (hardcoded lists, dictionaries, or DataFrame constructors).
@@ -109,9 +110,10 @@ Absolutely Forbidden:
 
 Example:
 User Question: Are there any seasonal patterns in revenue or return rate in 2024?
-Response: "import pandas as pd\ndf['date'] = pd.to_datetime(df['date'], errors='coerce')\nresult = df[df['date'].dt.year == 2024].groupby(df['date'].dt.month)[['revenue', 'return_rate']].mean()" 
+Response: "import pandas as pd\n\ndf['date'] = pd.to_datetime(df['date'], errors='coerce')\ndf['year'] = df['date'].dt.year\ndf['month'] = df['date'].dt.month\n\nresult = df[df['year'] == 2024].groupby('month')[['revenue', 'return_rate']].mean()"
 
 Always convert the 'date' column using pd.to_datetime() before using it in any operation.
+**Always extract time-based features like year, month, or week into separate columns before using them in filtering or grouping. Avoid using .dt accessors directly inside groupby or filters.**
 """
 
     # - Never include comments in the Python code output.
@@ -165,6 +167,7 @@ Important Rules:
 - Do not invent or infer additional values, years, categories, or structure.
 - Never create or define the DataFrame within the code (e.g., no `pd.DataFrame`, no `data = {...}` blocks).
 - Never infer or assume data values; rely only on the metadata fields provided.
+- **When plotting time series data (like over months), always include both year and month by combining them into a year_month column or datetime object. Use this combined column as the x-axis in plots. Do not skip this even if the year has a single unique value in the preview.**
 
 Plotting Rules:
 - Use only Plotly Express (e.g., `import plotly.express as px`) for all charts.

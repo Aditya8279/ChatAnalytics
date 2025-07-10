@@ -15,6 +15,10 @@
       backdrop-filter: blur(2px);
       transition: all 0.3s ease;
     }
+    .fade-out {
+      transition: opacity 0.3s ease;
+      opacity: 0;
+    }
   </style>
 </head>
 <body class="h-screen bg-gray-100 overflow-hidden">
@@ -182,7 +186,7 @@
             {% for plot in plot_images %}
               <div id="plot-{{ forloop.counter0 }}" class="relative bg-white p-4 rounded shadow">
 
-                <div class="relative bg-white p-4 rounded shadow">
+                {% comment %} <div class="relative bg-white p-4 rounded shadow"> {% endcomment %}
 
                   <!-- X (Remove) Button -->
                   <form method="POST" action="{% url 'dashboard' %}" class="absolute -top-2 -right-2 z-10">
@@ -196,7 +200,7 @@
 
                   <!-- Plot content -->
                   {{ plot|safe }}
-                </div>
+                {% comment %} </div> {% endcomment %}
 
               </div>
             {% endfor %}
@@ -330,6 +334,20 @@
       modal.classList.remove("flex");
     });
   </script>
+
+  <script>
+    document.querySelectorAll('.remove-plot-form').forEach(form => {
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        const plotCard = this.closest('.plot-card');
+        plotCard.classList.add('fade-out');
+        setTimeout(() => {
+          this.submit();
+        }, 2000);
+      });
+    });
+  </script>
+
 
 
   <script>
@@ -672,31 +690,27 @@
     const toggleBtn = document.getElementById("toggleSidebarBtn");
     const sidebar = document.getElementById("sidebar");
     const container = document.getElementById('dashboardContainer');
-    
+
     function resizeAllPlots() {
-      const ids = ['plot-0', 'plot-1', 'plot-2'];
-      ids.forEach(id => {
-        const plotDiv = document.getElementById(id)?.querySelector('.js-plotly-plot');
-        if (plotDiv) {
-          Plotly.Plots.resize(plotDiv);
-        }
+      const plotContainers = document.querySelectorAll('div[id^="plot-"] .js-plotly-plot');
+      plotContainers.forEach(plot => {
+        Plotly.Plots.resize(plot);
       });
     }
 
     document.getElementById("toggleSidebarBtn").addEventListener("click", () => {
-      const sidebar = document.getElementById("sidebar");
       sidebar.classList.toggle("w-1/4");
       sidebar.classList.toggle("w-0");
       sidebar.classList.toggle("p-4");
 
-      // ✅ Add or remove the "sidebar-collapsed" class
       container.classList.toggle("sidebar-collapsed");
 
       setTimeout(() => {
         requestAnimationFrame(resizeAllPlots);
-      }, 350); // Give layout time to settle
+      }, 350); // Delay for layout transition
     });
-    </script>
+  </script>
+
 
 
   {% comment %} <script>
