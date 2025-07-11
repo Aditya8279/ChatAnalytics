@@ -49,7 +49,7 @@
 
         <!-- Metadata Button -->
         <button id="metadata-button" type="button" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-          Metadata
+          Table Schema
         </button>
       </div>
 
@@ -76,8 +76,8 @@
         <div class="flex-1 overflow-y-auto min-h-0 pr-2">
           <ul class="space-y-1">
             {% for q in past_questions %}
-            <li class="text-sm text-blue-300 hover:text-blue-100 cursor-pointer clickable-question" data-question="{{ q|escape }}">
-              {{ q }}
+            <li class="text-sm text-white hover:text-blue-400 cursor-pointer clickable-question" data-question="{{ q|escape }}">
+              <span class="text-gray-400 select-none mr-1">-</span>{{ q }}
             </li>
             {% endfor %}
           </ul>
@@ -98,8 +98,13 @@
           class="w-full flex-grow border border-gray-300 rounded p-3 text-sm text-black resize-none mb-4"
         ></textarea>
 
-        <div class="flex justify-end">
-          <button id="continue-button" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Continue</button>
+        <div class="flex justify-between items-center w-full mt-2">
+          <p class="text-sm font-semibold text-gray-700">
+            * Please go through the table schema and update the column description if needed
+          </p>
+          <button id="continue-button" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+            Continue
+          </button>
         </div>
       </div>
     </div>
@@ -159,26 +164,36 @@
       <div id="reportSection">
         <!-- Top Insight Tiles -->
         {% if top_insights %}
-          {% comment %} <h2 class="text-xl font-semibold mb-4 text-gray-700">Top Insights</h2> {% endcomment %}
-          <div class="grid grid-cols-5 gap-4 mb-8">
+          <div class="flex flex-wrap gap-4 justify-center mb-8">
             {% for insight in top_insights %}
-            <div class="relative group bg-white rounded-2xl shadow-md p-4 text-center cursor-pointer">
+              <div class="flex-1 min-w-[150px] max-w-[180px] bg-white rounded-2xl shadow-md p-4 text-center cursor-pointer relative group">
 
-              <!-- Tooltip BELOW -->
-              <div class="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-20 whitespace-nowrap">
-                {{ insight.description }}
+                <!-- Remove (-) Button -->
+                <form method="POST" action="{% url 'dashboard' %}" class="absolute -top-2 -right-2 z-10">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="remove_tile">
+                  <input type="hidden" name="tile_index" value="{{ forloop.counter0 }}">
+                  <button type="submit" class="text-red-500 hover:text-red-700 text-lg font-bold bg-white rounded-full px-2 py-0.5 shadow-md">
+                    &minus;
+                  </button>
+                </form>
+
+                <!-- Tooltip BELOW -->
+                <div class="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-20 whitespace-nowrap">
+                  {{ insight.description }}
+                </div>
+
+                <!-- Label -->
+                <div class="text-sm text-gray-500 z-10 relative">{{ insight.label }}</div>
+
+                <!-- Value -->
+                <div class="text-xl font-bold text-gray-800 mt-1 z-10 relative">{{ insight.value }}</div>
+
               </div>
-
-              <!-- Label -->
-              <div class="text-sm text-gray-500 z-10 relative">{{ insight.label }}</div>
-
-              <!-- Value -->
-              <div class="text-xl font-bold text-gray-800 mt-1 z-10 relative">{{ insight.value }}</div>
-
-            </div>
             {% endfor %}
           </div>
         {% endif %}
+
 
 
         {% if plot_images %}
@@ -343,7 +358,7 @@
         plotCard.classList.add('fade-out');
         setTimeout(() => {
           this.submit();
-        }, 2000);
+        }, 300);
       });
     });
   </script>
@@ -464,6 +479,8 @@
       .then(res => res.json())
       .then(data => {
         console.log("Schema submitted:", data);
+        // Restore schema for future use
+        schemaTextarea.value = sessionStorage.getItem("lastSchema") || lastSchema;
       })
       .catch(error => {
         console.error("Error submitting schema:", error);
@@ -655,6 +672,8 @@
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       const downloadBtn = document.getElementById('downloadReportBtn');
+      const savedSchema = sessionStorage.getItem("lastSchema") || "";
+      schemaTextarea.value = savedSchema;
       if (downloadBtn) {
         downloadBtn.addEventListener('click', function () {
           const reportSection = document.getElementById('reportSection');

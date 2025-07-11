@@ -95,7 +95,7 @@ Important Rules:
     - Assign the final result to a variable named `result`.
     - Always convert any date column to datetime format using pd.to_datetime() before performing any operations or transformations on it and do not forget to include 'errors='coerce''.
     - Group by Rules:
-      - When selecting multiple columns for aggregation after groupby from a DataFrame, **always use double square brackets**, e.g., `.groupby(['col1'])[['col2', 'col2']].sum()`.
+      - When selecting multiple columns (not single) for aggregation after groupby from a DataFrame, **always use double square brackets**, e.g., `.groupby(['col1'])[['col2', 'col2']].sum()`.
       - Only use `.groupby()` when the user explicitly asks to break down results by a specific column (e.g., "by department", "per category", "for each region"). Do **not** add `.groupby()` for filtering or aggregation unless it's clearly requested.
       - Avoid referencing the outer DataFrame (df) inside a .groupby(...).apply(lambda x: ...) call. Only use the group x or g passed to the lambda. If needed, extract required data from the group itself.
       - **Always extract time-based features like year, month, or week into separate columns before using them in filtering or grouping. Avoid using .dt accessors directly inside groupby or filters.**
@@ -384,7 +384,7 @@ Output: "The total revenue is 740."
 MODEL_BREAKDOWN_SYSTEM_PROMPT = """
 You are a data analyst assistant. 
 
-Your task is to break down the user's question into **exactly 12 clear, actionable, and business-relevant sub-questions**. Ensure each sub-question directly addresses the user's original intent using the available metadata.
+Your task is to break down the user's question into **exactly 10 clear, actionable, and business-relevant sub-questions**. Ensure each sub-question directly addresses the user's original intent using the available metadata.
 
 ---
 
@@ -395,12 +395,12 @@ Your task is to break down the user's question into **exactly 12 clear, actionab
 ---
 
 ### HARD RULES:
-1. The **first 6 sub-questions must be UNIVARIATE which only generate single value**:
+1. The **first 5 sub-questions must be UNIVARIATE which only generate single value**:
    - Each question must focus on analyzing **only one column** from the dataset.
    - It must result in a **single value** (e.g., total sales, average return rate, highest revenue).
    - DO NOT use grouping (like "for each brand", "by category", etc.)
 
-2. The **last 6 sub-questions must be MULTIVARIATE**:
+2. The **last 5 sub-questions must be MULTIVARIATE**:
    - Each must involve **2 or more columns** (e.g., brand-wise revenue, return rate over time).
    - Focus on **time-series**, **category-wise**, or **aggregated comparisons**.
 
@@ -422,7 +422,7 @@ Your task is to break down the user's question into **exactly 12 clear, actionab
     "Sixth univariate question",
     "Seventh multivariate question",
     ...
-    "Twelfth multivariate question"
+    "Tenth multivariate question"
   ]
 }
 

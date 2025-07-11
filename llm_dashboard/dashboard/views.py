@@ -731,13 +731,14 @@ def dashboard_view(request):
     past_questions = request.session["past_questions"]
 
     top_insights=[]
-    plot_paths=[]
+    plot_images=[]
     final_summary=None
+    combined_final_summary = None
 
     if request.method == 'POST':
 
         # Load from session if exists
-        plot_image = request.session.get('plot_images', [])
+        plot_images = request.session.get('plot_images', [])
         # logging.info(f"=== plot_image ===\n\n{plot_image}")
         top_insights = request.session.get('top_insights', [])
         # logging.info(f"=== top_insights ===\n\n{top_insights}")
@@ -762,21 +763,37 @@ def dashboard_view(request):
         # ✅ Add the new question if it's not empty
         if user_question.strip():
             # past_questions.append(user_question)
-            past_questions.insert(0, user_question)
-            request.session["past_questions"] = past_questions  # ✅ Save back to session
+            if user_question.lower() not in [q.lower() for q in past_questions]:
+                past_questions.insert(0, user_question)
+                request.session["past_questions"] = past_questions
         elif plot_question.strip():
             user_question = plot_question
             sub_questions = [user_question]
         elif action == 'remove_plot':
             index = int(request.POST.get('plot_index', -1))
-            if 0 <= index < len(plot_image):
-                plot_image.pop(index)
-                request.session['plot_images'] = plot_image
+            if 0 <= index < len(plot_images):
+                plot_images.pop(index)
+                request.session['plot_images'] = plot_images
 
             context = {
                 "past_questions": past_questions,  # list of previous questions
-                "top_insights": top_insights[:5],
-                "plot_images": plot_image,
+                "top_insights": top_insights,
+                "plot_images": plot_images,
+                "final_summary":combined_final_summary
+            }
+                
+            return render(request, 'dashboard.html', context)
+        
+        elif action == "remove_tile":
+            index = int(request.POST.get("tile_index", -1))
+            if 0 <= index < len(top_insights):
+                top_insights.pop(index)
+                request.session['top_insights'] = top_insights
+
+            context = {
+                "past_questions": past_questions,  # list of previous questions
+                "top_insights": top_insights,
+                "plot_images": plot_images,
                 "final_summary":combined_final_summary
             }
                 
@@ -812,181 +829,10 @@ def dashboard_view(request):
 
         # sub_questions = updated_list
 
-        # summaries, plot_paths, q_title, filter_result, description_list = [], [], [None,None,None,None,None,None,None,None,None,None,None,None,None], [None,None,None,None,None,None,None,None,None,None,None,None, None], [None,None,None,None,None,None,None,None,None,None,None,None,None]
-
-        # for i, sub_q in enumerate(sub_questions):
-        #     logging.info(f"=== Enter loop with question number (Q{i+1}) ===\n\n{sub_q}")
-        #     result = None
-        #     last_model2_error = ""
-        #     python_code = ""
-
-        #     # Return code to filter dataframe based on sub_q
-        #     prompt_2 = f"User Question: {sub_q}\n\nMetadata:\n{metadata}"
-        #     for attempt in range(5):
-        #         try:
-        #             retry_prompt_2 = (
-        #                 f"{prompt_2}\n\nPrevious Output error (if any): {last_model2_error}"
-        #                 if last_model2_error else prompt_2
-        #             )
-
-        #             logging.info(f"=== Input | Data Filter Step for (Q{i+1}) ===\n\n")
-
-        #             code_response = generate_python_code(retry_prompt_2)
-
-        #             logging.info(f"=== Output | Data Filter Step for (Q{i+1}) ===\n\n{code_response}")
-
-        #             # python_code = code_response
-        #             code_response = extract_json_from_response(code_response)
-        #             python_code = fix_llm_code(code_response)
-                                
-        #             local_vars = {"df": df.copy()}
-        #             exec(python_code, {}, local_vars)
-        #             result = local_vars.get("result")
-
-        #             result = safe_reset_index(result)
-
-        #             # filtered_data[i] = result
-        #             if result is not None:
-        #                 break
-        #         except Exception as e:
-        #             last_model2_error = python_code+str(e)
-
-            
-        #     # filtered_df = execute_code(code, df)  # safe exec
-        #     # filtered_data.append(filtered_df.head(5).values.tolist())
-
-        #     # if isinstance(result, (pd.DataFrame, pd.Series)) and result is not None and not result.empty:
-        #     #     result1 = [result.columns.tolist()] + result.values.tolist()
-        #     #     filtered_data.append(result1)
-        #     # elif result is not None:
-        #     #     filtered_data.append(result)
-        #     # else:
-        #     # filtered_data.append(None)
-        #         # table_data = None
-            
-            
-
-        #     # plot_image = None
-        #     if isinstance(result, pd.DataFrame) and result.shape[0] > 1 and result.shape[1] > 1 or isinstance(result, pd.Series) and result.shape[0] > 1:
-        #         # if isinstance(result, (pd.DataFrame)):
-        #         #     result = safe_reset_index(result)
-        #         # else:
-        #         #     result = pd.DataFrame(result).reset_index()
-
-        #         # result = safe_reset_index(result)
-        #         # index_cols = ['index', 'Unnamed: 0']
-        #         # for col in index_cols:
-        #         #     if col in result.columns:
-        #         #         result = result.drop(columns=col)
-
-        #         for col in result.columns:
-        #             if is_period_dtype(result[col]):
-        #                 result[col] = result[col].astype(str)
-
-        #         result.loc[:, result.select_dtypes(include=['float', 'float64']).columns] = result.select_dtypes(include=['float', 'float64']).round(2)
-
-        #         result_head = result.head(14)
-
-        #         # local_vars["result"] = result.copy()
-        #         local_vars = {"df": result.copy()}
-        #         # logging.info(f"=== MODEL 3 Dashboard | Before extract_metadata function (Q{i+1}) ===\n\n")
-        #         # result_metadata = extract_metadata(result)
-        #         # logging.info(f"=== MODEL 3 Dashboard | after extract_metadata function (Q{i+1}) ===\n\n")
-
-        #         # summary_prompt = f"User Query: {sub_q}\nDataset: \n{result_head.to_markdown(index=False)}"
-        #         summary_prompt = f"Dataset: \n{result_head.to_markdown(index=False)}"
-                
-        #     else:
-        #         # summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
-                
-        #         # filter_result[i] = result
-
-        #         if isinstance(result, (int, float, np.integer, np.floating)):
-        #             logging.info(f"=== result variable type (Q{i+1}, Attempt {attempt+1}) ===\n{type(result)}\n\n")
-        #             result = round(result, 2)
-        #             summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
-        #             description = generate_description(summary_prompt)
-        #             description_list[i] = description
-        #             result = human_format(result)
-        #             filter_result[i] = result
-        #             # filter_result.append(result)
-        #         else:
-        #             if not isinstance(result, (pd.DataFrame, pd.Series)):
-        #                 logging.info(f"=== result variable type (Q{i+1}, Attempt {attempt+1}) ===\n{type(result)}\n\n")
-        #                 summary_prompt = f"User Query: {sub_q}\nOutput Value: \n{result}"
-        #                 description = generate_description(summary_prompt)
-        #                 description_list[i] = description
-        #                 filter_result[i] = result
-        #             else:
-        #                 summary_prompt = f"Dataset: \n{result.to_markdown(index=False)}"
-        #                 description = generate_description(summary_prompt)
-        #                 # description_list[i] = description
-        #                 # filter_result[i] = result
-
-        #             # filter_result.append(result)
-
-        #         # if result.shape[0] > 1 and result.shape[1] > 1:
-
-        #     last_model3_error = ''
-        #     viz_code = ''
-        #     for attempt in range(3):
-        #         try:
-
-        #             retry_summary_prompt = (
-        #                 f"{summary_prompt}\n\nPrevious Output error (if any): {last_model3_error}"
-        #                 if last_model3_error else summary_prompt
-        #             )
-        #             # viz_prompt = f"""Dataset:\n{result.to_markdown(index=False)}"""
-        #             logging.info(f"=== MODEL 3 Dashboard input (Q{i+1}, Attempt {attempt+1}) ===\n{retry_summary_prompt}\n\n")
-        #             if isinstance(result, pd.DataFrame) and result.shape[0] > 1 and result.shape[1] > 1 or isinstance(result, pd.Series) and result.shape[0] > 1:
-        #                 viz_code_response = generate_plot_code(retry_summary_prompt)
-        #                 logging.info(f"=== MODEL 3 Dashboard Plot Code (Q{i+1}, Attempt {attempt+1}) ===\n{viz_code_response}\n\n")
-        #                 viz_code_response = extract_json_from_response(viz_code_response)
-        #                 viz_code_response = inject_plot_formatting(viz_code_response, height=280)
-        #                 logging.info(f"=== MODEL 3 Dashboard local_vars access (Q{i+1}, Attempt {attempt+1}) ===\n{local_vars}\n\n")
-        #                 exec(viz_code_response, {}, local_vars)
-
-        #                 # Extract HTML from variable (assume model always uses `plot_html`)
-        #                 plot_html = local_vars.get("plot_html", "")
-        #                 plot_paths.append(plot_html)
-        #                 # viz_code_response = query_llm(retry_summary_prompt, MODEL_3_SYSTEM_PROMPT)
-        #             else:
-        #                 viz_code_response = generate_title(sub_q)
-        #                 logging.info(f"=== MODEL title Dashboard Output (Q{i+1}, Attempt {attempt+1}) ===\n{viz_code_response}\n\n")
-        #                 q_title[i] = viz_code_response
-        #                 # q_title.append(viz_code_response)
-        #                 logging.info(f"=== MODEL title Dashboard Output Saved")
-        #                 # viz_code_response = query_llm(retry_summary_prompt, MODEL_NO_DF_SYSTEM_PROMPT)
-                    
-        #             # plot_paths.append(encoded_img)
-        #             break
-        #         except Exception as e:
-        #             last_model3_error = viz_code_response+str(e)
-        #             logging.warning(f"⚠️ MODEL 3 Attempt {attempt+1} failed: {e}")
-        #             plt.close()
-
-        #     # logging.info(f"=== plot_image (Q{i+1}) ===\n{plot_image}\n\n")
-
-        #     # plot_paths.append(encoded_img)
-
-        #     summary_result = generate_summary(summary_prompt)
-
-        #     # summaries[i] = viz_code_response
-        #     # summaries.append(summary_result)
-        #     summaries.append({
-        #         "question": sub_q,
-        #         "summary": summary_result
-        #     })
-
-        #     # viz_code_response = generate_final_summary(retry_summary_prompt)
-
-            
-        #     # plot_path = f'static/plots/subq{i}.png'
-        #     # execute_code(plot_code, filtered_df, save_path=plot_path)
-        #     # plot_paths.append(plot_path)
-
         summaries, plot_paths, q_title, filter_result, description_list = run_in_parallel(sub_questions, metadata, df)
         plot_paths = [path for path in plot_paths if path is not None]
+        if not plot_paths:
+            plot_paths = [None]
 
         logging.info(f"=== MODEL summary Dashboard Input ===\n{summaries}\n\n")
         # combined_insights = "\n\n".join(summaries)
@@ -1013,20 +859,42 @@ def dashboard_view(request):
         # final_summary = json.loads(final_summary)
 
         if plot_question.strip():
-            plot_image.insert(0, plot_paths[0])
-            plot_paths = plot_image
-            final_context = str(combined_final_summary) + str(final_summary)
-            logging.info(f"=== MODEL final_context Dashboard Input ===\n{final_context}\n\n")
-            final_summary = generate_final_summary(final_context)
-            logging.info(f"=== MODEL final_context Dashboard Output ===\n{final_summary}\n\n")
-            final_summary = extract_json_from_response(final_summary)
+            if q_title[0] is not None and filter_result[0] is not None and description_list[0] is not None:
+                top_insights.insert(0,{"label": q_title[0], "value": filter_result[0], "description": description_list[0]})
 
-            if isinstance(final_summary, str):
-                try:
-                    final_summary = json.loads(final_summary)
-                except json.JSONDecodeError as e:
-                    print("JSON decoding failed:", e)
-                    final_summary = {}
+                # plot_paths = plot_images
+                final_context = str(combined_final_summary) + str(final_summary)
+                logging.info(f"=== MODEL final_context Dashboard Input ===\n{final_context}\n\n")
+                final_summary = generate_final_summary(final_context)
+                logging.info(f"=== MODEL final_context Dashboard Output ===\n{final_summary}\n\n")
+                final_summary = extract_json_from_response(final_summary)
+
+                if isinstance(final_summary, str):
+                    try:
+                        final_summary = json.loads(final_summary)
+                    except json.JSONDecodeError as e:
+                        print("JSON decoding failed:", e)
+                        final_summary = {}
+                        
+            elif plot_paths[0] is not None:
+                plot_images.insert(0, plot_paths[0])
+                # plot_paths = plot_images
+                final_context = str(combined_final_summary) + str(final_summary)
+                logging.info(f"=== MODEL final_context Dashboard Input ===\n{final_context}\n\n")
+                final_summary = generate_final_summary(final_context)
+                logging.info(f"=== MODEL final_context Dashboard Output ===\n{final_summary}\n\n")
+                final_summary = extract_json_from_response(final_summary)
+
+                if isinstance(final_summary, str):
+                    try:
+                        final_summary = json.loads(final_summary)
+                    except json.JSONDecodeError as e:
+                        print("JSON decoding failed:", e)
+                        final_summary = {}
+                        
+        else:
+            plot_images = plot_paths
+
             # final_summary = json.loads(final_summary)
 
 
@@ -1053,14 +921,14 @@ def dashboard_view(request):
 
     # Save to session
     logging.info(f"=== Save variables in session ===")
-    request.session['plot_images'] = plot_paths
+    request.session['plot_images'] = plot_images
     request.session['final_summary'] = final_summary
     request.session['top_insights'] = top_insights
 
     context = {
         "past_questions": past_questions,  # list of previous questions
-        "top_insights": top_insights[:5],
-        "plot_images": plot_paths,
+        "top_insights": top_insights,
+        "plot_images": plot_images,
         "final_summary":final_summary
     }
         
