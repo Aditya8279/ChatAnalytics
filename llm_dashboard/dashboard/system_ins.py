@@ -34,35 +34,52 @@ Example output:
 }
 """
 
-MODEL_ANOMALIES_SYSTEM_PROMPT = """You are a data assistant. Given a list of anomaly strings, generate concise, clear bullet-point alerts.
+# MODEL_ANOMALIES_SYSTEM_PROMPT = """You are a data assistant. Given a list of anomaly/outlier along with the mean and standard deviation of that column, generate concise, clear bullet-point alerts explanation.
 
-Anomaly strings may include:(sample input)
+# Anomaly strings may include:(sample input)
 
-- TimeSeries Z-Score (window=7): sales=15932.0 on date column_name:'date'=column_value:'2023-04-15';
-or
-- IQR: BP (mmHg): 925.25; | IF: BP (mmHg): 925.25, WD (deg): 290.0, NO2 (ug/m3): 97.28
+# - sales=15932.0 (mean = 10000 and standard deviation 1500) on date column_name:'date'=column_value:'2023-04-15';
+# or
+# - IQR: BP (mmHg): 925.25; | IF: BP (mmHg): 925.25, WD (deg): 290.0, NO2 (ug/m3): 97.28
 
-## Formatting Guidelines:
+# ## Formatting Guidelines:
 
-- For Z-Score anomalies:
-  - Format: 
-    - Column 'sales' = 15,932.0 on 2023-04-15 flagged by Z-Score method.
+# - For Z-Score anomalies:
+#   - Format: 
+#     - Column 'sales' = 15,932.0 on 2023-04-15 flagged by Z-Score method.
 
-- For IQR / Isolation Forest anomalies:
-  - Format: 
-    - Column 'BP (mmHg)' = 925.25 flagged by IQR & Isolation Forest; WD (deg) = 290.0, NO2 (ug/m3) = 97.28 also flagged.
-    - Column 'CO (mg/m3)' = 12.5 flagged by Isolation Forest.
-    - Column 'Temperature (°C)' = 47.2 flagged by IQR.
+# - For IQR / Isolation Forest anomalies:
+#   - Format: 
+#     - Column 'BP (mmHg)' = 925.25 flagged by IQR & Isolation Forest; WD (deg) = 290.0, NO2 (ug/m3) = 97.28 also flagged.
+#     - Column 'CO (mg/m3)' = 12.5 flagged by Isolation Forest.
+#     - Column 'Temperature (°C)' = 47.2 flagged by IQR.
 
-Note: 
-- Output each message as a bullet point.
-- Keep the tone short, readable, and alert-style.
-- Never add extra anomaly. Only format the provided anomaly string.
+# Note: 
+# - Output each message as a bullet point.
+# - Keep the tone short, readable, and alert-style.
+# - Never add extra anomaly. Only format the provided anomaly string.
 
-Very Important:
-- If there is no Anomaly then return "Column 'sales' = 15,932.0 on 2023-04-15 flagged by Z-Score method." always.
+# Very Important:
+# - If there is no Anomaly then return "Column 'sales' = 15,932.0 on 2023-04-15 flagged by Z-Score method." always.
+# """
+
+MODEL_ANOMALIES_SYSTEM_PROMPT = """You are a data alert assistant. Given anomaly details that include column name, outlier value, mean and standard deviation, generate concise, one-line bullet-point alerts summarizing the anomaly reason and its impact (positive or negative).
+
+Each alert should:
+- Clearly highlight the anomalous value, the related column, and the deviation from normal.
+- Indicate whether the anomaly is likely good or bad based on its context.
+- Be factual and alert-style—no fluff, no assumptions beyond what is given.
+
+**Input Example:**
+- sales=15932.0 (mean = 10000 and standard deviation 1500) on date column_name:'date'=column_value:'2023-04-15';
+- IQR: BP (mmHg): 925.25 (mean = 600 and standard deviation 50); | IF: BP (mmHg): 925.25 (mean = 600 and standard deviation 50), WD (deg): 290.0 (mean = 200 and standard deviation 50), NO2 (ug/m3): 97.28 (mean = 60 and standard deviation 5)
+
+**Output Requirement:**
+- Provide a one-line bullet point summarizing the anomaly value and its potential impact (e.g., sharp spike in BP, unusually high sales).
+- If no anomaly input is given, always generate output for this:
+  - sales=15932.0 (mean = 10000 and standard deviation 1500) on date column_name:'date'=column_value:'2023-04-15'.
+
 """
-
 
 MODEL_CLASSIFICATION_SYSTEM_PROMPT = """
 You are a classification agent. Your job is to analyze the user's question and determine:

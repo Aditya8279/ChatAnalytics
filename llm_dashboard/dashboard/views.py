@@ -402,6 +402,9 @@ def detect_auto_anomalies(df, model_output, iqr_multiplier=4.5, iso_contaminatio
 
             # result_df.loc[temp_df['anomaly'], "Anomaly Reason"] += f"TimeSeries Z-Score: {col}; "
             # Add both column name and value to the anomaly reason
+            mean_val = temp_df[col].mean()
+            std_val = temp_df[col].std()
+
             for idx in temp_df.index[temp_df['anomaly']]:
                 date_val = temp_df.loc[idx, date_col]
                 value = temp_df.loc[idx, col]
@@ -409,7 +412,9 @@ def detect_auto_anomalies(df, model_output, iqr_multiplier=4.5, iso_contaminatio
                 #     f"TimeSeries Z-Score (window={window}): {col}={value} on date column_name:'{date_col}'=column_value:'{date_val}'; "
                 # )
                 description = (
-                    f"TimeSeries Z-Score (window={window}): {col}={value} on date column_name:'{date_col}'=column_value:'{date_val}';"
+                    f"{col}={value} "
+                    f"(mean={mean_val:.2f}, std={std_val:.2f}) on "
+                    f"date column_name:'{date_col}'=column_value:'{date_val}';"
                 )
                 anomaly_descriptions.append(description)
 
@@ -435,11 +440,16 @@ def detect_auto_anomalies(df, model_output, iqr_multiplier=4.5, iso_contaminatio
                 IQR = Q3 - Q1
                 lower = Q1 - multiplier * IQR
                 upper = Q3 + multiplier * IQR
+                mean = df[col].mean()
+                std = df[col].std()
                 outliers = (df[col] < lower) | (df[col] > upper)
                 flags |= outliers
                 for idx in df.index[outliers]:
                     val = df.loc[idx, col]
-                    reasons[idx] += f"{col}: {val}; "
+                    # reasons[idx] += f"{col}: {val}; "
+                    reasons[idx] += (
+                        f"{col}: {val} (mean={mean:.2f}, std={std:.2f}); "
+                    )
             return flags, reasons
     
         # --- Isolation Forest Detection ---
@@ -454,8 +464,15 @@ def detect_auto_anomalies(df, model_output, iqr_multiplier=4.5, iso_contaminatio
             for idx in clean_df[flags[clean_df.index]].index:
                 diffs = (clean_df.loc[idx] - clean_df.median()).abs()
                 top_features = diffs.sort_values(ascending=False).head(3).index.tolist()
-                reason_parts = [f"{col}: {df.loc[idx, col]}" for col in top_features]
+                reason_parts = []
+                for col in top_features:
+                    val = df.loc[idx, col]
+                    mean = df[col].mean()
+                    std = df[col].std()
+                    reason_parts.append(f"{col}: {val} (mean={mean:.2f}, std={std:.2f})")
                 reasons[idx] = "IF: " + ", ".join(reason_parts)
+                # reason_parts = [f"{col}: {df.loc[idx, col]}" for col in top_features]
+                # reasons[idx] = "IF: " + ", ".join(reason_parts)
             return flags, reasons
     
         # Run both detections

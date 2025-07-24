@@ -408,7 +408,7 @@
 
 
 
-  <script>
+  {% comment %} <script>
     const modal = document.getElementById("addPlotModal");
     const openBtn = document.getElementById("addPlotBtn");
     const cancelBtn = document.getElementById("cancelAddPlot");
@@ -421,6 +421,46 @@
     cancelBtn.addEventListener("click", () => {
       modal.classList.add("hidden");
       modal.classList.remove("flex");
+    });
+  </script> {% endcomment %}
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const modal = document.getElementById("addPlotModal");
+      const openBtn = document.getElementById("addPlotBtn");
+      const cancelBtn = document.getElementById("cancelAddPlot");
+      const plotForm = document.getElementById("addPlotForm");
+      const generateBtn = plotForm.querySelector('button[type="submit"]');
+      const spinner = document.getElementById("spinnerWrapper"); // Reuse global spinner
+
+      // Open modal
+      openBtn.addEventListener("click", () => {
+        modal.classList.remove("hidden");
+        modal.classList.add("flex");
+      });
+
+      // Cancel button hides modal
+      cancelBtn.addEventListener("click", () => {
+        modal.classList.add("hidden");
+        modal.classList.remove("flex");
+      });
+
+      // On form submission: show spinner + disable controls + hide modal
+      plotForm.addEventListener("submit", function () {
+        // Show global spinner
+        if (spinner) spinner.classList.remove("hidden");
+
+        // Disable Generate button
+        generateBtn.disabled = true;
+        generateBtn.classList.add("opacity-50", "cursor-not-allowed");
+
+        // Hide Cancel button
+        cancelBtn.classList.add("hidden");
+
+        // Hide modal itself
+        modal.classList.add("hidden");
+        modal.classList.remove("flex");
+      });
     });
   </script>
 
