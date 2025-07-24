@@ -21,29 +21,38 @@ step4: sudo nano docker-compose.yml
             container_name: django
             restart: always
             expose:
-            - "8000"
+                - "8000"
             volumes:
-            - static_volume:/app/staticfiles  # Share static files
+                - static_volume:/app/staticfiles  # Share static files
 
         nginx:
             image: adityadocs2408/nginx:latest
             container_name: nginx
             restart: always
             depends_on:
-            - django
+                - django
             ports:
-            - "80:80"
+                - "80:80"
             volumes:
-            - static_volume:/app/staticfiles  # Same mount for Nginx
+                - static_volume:/app/staticfiles  # Same mount for Nginx
 
     volumes:
-    static_volume:
+        static_volume:
     ```
 
 step5: sudo systemctl start docker
 step6: sudo systemctl enable docker
 step7: sudo docker login -u username
-step8: sudo docker-compose up --build
+step8: Run the App: sudo docker-compose up --build
+       Run in Background: sudo docker-compose up --build -d
+
+Additional Tips:
+To check if everything is running fine, use:
+- sudo docker-compose ps
+To view logs later if needed:
+- sudo docker-compose logs
+To stop everything:
+- sudo docker-compose down
 
 In Case of Error
 

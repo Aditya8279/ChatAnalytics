@@ -6,6 +6,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
   <style>
     /* When sidebar is collapsed, shift title right */
     #dashboardContainer.sidebar-collapsed #dashboardTitle {
@@ -197,30 +198,44 @@
 
 
         {% if plot_images %}
+          <!-- Heading and Edit Button -->
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-2xl font-semibold text-gray-800">Analysis Plots</h2>
+            <div class="flex items-center gap-3">
+              <!-- Edit Button -->
+              <button class="hover:scale-105 transition-transform" title="Edit Plots">
+                <img src="{% static 'png/edit_plots.png' %}" alt="Edit" class="h-6 w-6 hover:opacity-75" />
+              </button>
+
+              <!-- Add Plot Button -->
+              {% comment %} <button id="addPlotBtn" class="p-2 hover:scale-105 transition-transform" title="Add Analytical Plot">
+                <img src="{% static 'png/plus_icon.png' %}" alt="Add Plot" class="h-6 w-6" />
+              </button> {% endcomment %}
+            </div>
+          </div>
+
+          <!-- Plot Grid -->
           <div class="grid grid-cols-2 gap-4 mb-8">
             {% for plot in plot_images %}
               <div id="plot-{{ forloop.counter0 }}" class="relative bg-white p-4 rounded shadow">
 
-                {% comment %} <div class="relative bg-white p-4 rounded shadow"> {% endcomment %}
+                <!-- X (Remove) Button -->
+                <form method="POST" action="{% url 'dashboard' %}" class="absolute -top-2 -right-2 z-10">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="remove_plot">
+                  <input type="hidden" name="plot_index" value="{{ forloop.counter0 }}">
+                  <button type="submit" class="text-red-500 hover:text-red-700 text-xl font-bold bg-white rounded-full px-2 py-0.5 shadow-md">
+                    &times;
+                  </button>
+                </form>
 
-                  <!-- X (Remove) Button -->
-                  <form method="POST" action="{% url 'dashboard' %}" class="absolute -top-2 -right-2 z-10">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="remove_plot">
-                    <input type="hidden" name="plot_index" value="{{ forloop.counter0 }}">
-                    <button type="submit" class="text-red-500 hover:text-red-700 text-xl font-bold bg-white rounded-full px-2 py-0.5 shadow-md">
-                      &times;
-                    </button>
-                  </form>
-
-                  <!-- Plot content -->
-                  {{ plot|safe }}
-                {% comment %} </div> {% endcomment %}
-
+                <!-- Plot content -->
+                {{ plot|safe }}
               </div>
             {% endfor %}
           </div>
         {% endif %}
+
 
 
         <!-- Final Summary Section -->
@@ -333,6 +348,65 @@
       </form>
     </div>
   </div>
+
+  <!-- Edit Plots Modal -->
+  <div id="editPlotsModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 hidden">
+    <div class="bg-white w-full max-w-lg p-6 rounded-lg shadow-xl relative">
+
+      <!-- Modal Header -->
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-semibold">Edit Analysis Plots</h3>
+        <button onclick="closeEditModal()" class="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
+      </div>
+
+      <!-- Plot List (Drag and Drop + Checkboxes) -->
+      <form method="POST" action="{% url 'dashboard' %}">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="edit_plots">
+        <ul id="plotList" class="space-y-2">
+          {% for plot in plot_images %}
+            <li class="flex items-center justify-between bg-gray-100 p-3 rounded cursor-move" data-index="{{ forloop.counter0 }}">
+              <input type="checkbox" name="visible_plots" value="{{ forloop.counter0 }}" checked class="mr-2">
+              <span class="flex-1">Plot {{ forloop.counter }}</span>
+              <input type="hidden" name="plot_order" value="{{ forloop.counter0 }}">
+            </li>
+          {% endfor %}
+        </ul>
+
+        <!-- Save Button -->
+        <div class="mt-6 text-right">
+          <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const editModal = document.getElementById('editPlotsModal');
+    const plotList = document.getElementById('plotList');
+
+    // Open modal on button click
+    document.querySelector('button[title="Edit Plots"]').addEventListener('click', () => {
+      editModal.classList.remove('hidden');
+    });
+
+    function closeEditModal() {
+      editModal.classList.add('hidden');
+    }
+
+    // Enable drag-and-drop
+    Sortable.create(plotList, {
+      animation: 150,
+      onEnd: function () {
+        // Update hidden inputs with new order
+        document.querySelectorAll('#plotList li').forEach((item, index) => {
+          item.querySelector('input[type="hidden"]').value = item.dataset.index;
+        });
+      }
+    });
+  </script>
+
+
 
   <script>
     const modal = document.getElementById("addPlotModal");
@@ -811,13 +885,6 @@
       }
     });
   </script>
-
-
-
-
-
-
-
 
   <script>
     const toggleSidebarBtn = document.getElementById("toggleSidebarBtn");

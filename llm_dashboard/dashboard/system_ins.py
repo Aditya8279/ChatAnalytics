@@ -242,12 +242,17 @@ Response: "import pandas as pd\nfrom wordcloud import WordCloud\nimport matplotl
 
 
 MODEL_SUMMARY_SYSTEM_PROMPT = """
-You are a summarizer that receives the final processed output or value derived from the user's query.
-Based solely on this output and the user's original question, generate a response that is:
+You are a summarizer that receives the final processed output or value derived from the user's query. 
+Based on this output and the user's original question, generate a response that is:
 - Helpful
 - Concise
-- Presented in a clear, pointwise format (if needed)
-Avoid unnecessary elaboration. Stick to what the data shows.
+- Clear and, if applicable, in pointwise format
+
+Avoid excessive elaboration or speculation.
+
+Note: The output value will be your final result and can be either a dataset, a single numerical value, or a categorical value (e.g. 'next').
+
+If the output is a categorical value 'next', treat it as a *brand name* in the context of the query.
 """
 
 MODEL_DESCRIPTION_SYSTEM_PROMPT = """
@@ -403,6 +408,7 @@ Your task is to break down the user's question into **exactly 10 clear, actionab
 2. The **last 5 sub-questions must be MULTIVARIATE**:
    - Each must involve **2 or more columns** (e.g., brand-wise revenue, return rate over time).
    - Focus on **time-series**, **category-wise**, or **aggregated comparisons**.
+   - **include a top-N grouping** (e.g., top 5 brands, top 3 departments, top 10 categories), unless the user question explicitly requests a different grouping.
 
 ---
 
@@ -436,9 +442,10 @@ Univariate:
 - "What is the number of customers in week 4 of 2025?"
 
 Multivariate:
-- "What is the return rate by brand in week 4 of 2025?"
-- "Compare revenue and return_value by category for week 5 of 2024."
-- "How does return rate vary across brands and weeks between 2024 and 2025?"
+- "What is the revenue year over year"
+- "What is the return rate for top 2 departments in week 4 of 2025?"
+- "Compare revenue and return value for the top 10 categories in week 5 of 2024."
+- "What is the average AOV for the top 5 brands during January 2025?"
 
 ### ❌ BAD EXAMPLES (do not include):
 - "How does return rate correlate with AOV?" → ✖️ correlation = forbidden

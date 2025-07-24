@@ -604,7 +604,7 @@ def process_sub_question(i, sub_q, metadata, df, summaries, plot_paths, q_title,
         result_head = result.head(14)
 
         local_vars = {"df": result.copy()}
-        summary_prompt = f"Dataset: \n{result_head.to_markdown(index=False)}"
+        summary_prompt = f"User Query: {sub_q}\n\nDataset: \n{result_head.to_markdown(index=False)}"
         
     else:
         if isinstance(result, (int, float, np.integer, np.floating)):
@@ -798,6 +798,25 @@ def dashboard_view(request):
             }
                 
             return render(request, 'dashboard.html', context)
+        elif action == "edit_plots":
+            visible_ids = request.POST.getlist("visible_plots")
+            new_order = request.POST.getlist("plot_order")
+
+            updated_plots = []
+            for idx in new_order:
+                if idx in visible_ids:
+                    updated_plots.append(plot_images[int(idx)])
+
+            request.session["plot_images"] = updated_plots
+            
+            context = {
+                "past_questions": past_questions,  # list of previous questions
+                "top_insights": top_insights,
+                "plot_images": updated_plots,
+                "final_summary":combined_final_summary
+            }
+
+            return render(request, 'dashboard.html', context)
 
         # ✅ Load preprocessed DataFrame from session
         if "csv_data" in request.session:
@@ -961,6 +980,7 @@ def chatbot_view(request):
                 elif 'csv_data' in request.session:
                     df = pd.read_json(request.session["csv_data"])
                     metadata = request.session["metadata"]
+                    table_schema = request.session["table_schema"]
                     # df = pd.read_json(request.session["csv_data"])
                 else:
                     return JsonResponse({'reply': "No dataset found. Please upload a CSV first."})
@@ -983,14 +1003,20 @@ def chatbot_view(request):
                     history_prompt += f"{prefix} {item['content']}\n"
 
                 # ✅ Combine metadata, history, and latest question
-                python_prompt = f"""Here is the previous conversation history between the user and assistant: --- Chat History Start ---
-                                    {history_prompt.strip()}
-                                    --- Chat History End ---
-                                    Now, answer the current user question using the above history **if it's relevant**. Otherwise, answer based on the metadata below and the current question alone.
-                                    User Question: {user_input}
+                python_prompt = f"""Table Schema:\n{table_schema}
 
                                     Metadata:
                                     {metadata}
+
+                                    Here is the previous conversation history between the user and assistant: --- Chat History Start ---
+
+                                    {history_prompt.strip()}
+
+                                    --- Chat History End ---
+
+                                    Current User Question: {user_input}
+
+                                    Your first task is to identify and extract any relevant brand, department, or category names from the previous conversation history that are needed to answer the current user question. Use this information to inform your response , but only if it's relevant to the current question. If no relevant context is Found in the history, respond based solely on the metadata, table schema, and the current question.
                                     """
 
                 result = None
