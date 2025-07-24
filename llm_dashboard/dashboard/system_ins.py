@@ -58,6 +58,9 @@ Note:
 - Output each message as a bullet point.
 - Keep the tone short, readable, and alert-style.
 - Never add extra anomaly. Only format the provided anomaly string.
+
+Very Important:
+- If there is no Anomaly then return "Column 'sales' = 15,932.0 on 2023-04-15 flagged by Z-Score method." always.
 """
 
 
@@ -92,7 +95,7 @@ Responsibilities:
   
 Important Rules:
     - Assume the DataFrame is already loaded as df. DO not define or generate it at all.
-    - Assign the final result to a variable named `result`.
+    - Assign the final result to a variable named `result` at any cost.
     - Always convert any date column to datetime format using pd.to_datetime() before performing any operations or transformations on it and do not forget to include 'errors='coerce''.
     - Group by Rules:
       - When selecting multiple columns (not single) for aggregation after groupby from a DataFrame, **always use double square brackets**, e.g., `.groupby(['col1'])[['col2', 'col2']].sum()`.
@@ -108,9 +111,13 @@ Absolutely Forbidden:
 
 **Note: Even if the user says ‘trend’ or ‘chart’, do not add any visualization logic like '.plot' or any plot code — only return data processing code.**
 
-Example:
+Example 1:
 User Question: Are there any seasonal patterns in revenue or return rate in 2024?
 Response: "import pandas as pd\n\ndf['date'] = pd.to_datetime(df['date'], errors='coerce')\ndf['year'] = df['date'].dt.year\ndf['month'] = df['date'].dt.month\n\nresult = df[df['year'] == 2024].groupby('month')[['revenue', 'return_rate']].mean()"
+
+Example 2:
+User Question: I need to see revenue distribution between md and fp for 5 random categories
+Response: "import pandas as pd\nimport numpy as np\n\ndf['category'] = df['category'].astype(str)\nrandom_categories = df['category'].dropna().unique()\nrandom_categories = np.random.choice(random_categories, size=5, replace=False)\ndf_sample = df[df['category'].isin(random_categories)]\nresult = = df_sample.groupby('category')[['md','fp']].sum()"
 
 Always convert the 'date' column using pd.to_datetime() before using it in any operation.
 **Always extract time-based features like year, month, or week into separate columns before using them in filtering or grouping. Avoid using .dt accessors directly inside groupby or filters.**
@@ -159,7 +166,7 @@ Always convert the 'date' column using pd.to_datetime() before using it in any o
 # """
 
 MODEL_VIZ_SYSTEM_PROMPT = """
-You are a data visualization assistant. Generate Python code for data visualization based on provided metadata.
+You are a data visualization assistant. Generate Python visualization code strictly based on the provided metadata. Choose plot type and title based only on the user's question. If plotting is not suitable based on asked, generate a relevant alternative.
 
 Important Rules:
 - Always reference metadata when writing code; do not generate or hardcode any data.
@@ -192,10 +199,16 @@ Absolutely Forbidden:
 - No comments in the code output.
 - No use of raw newline characters — use `\\n` escape sequences only.
 
-Example:
+Example 1:
 
 User Question: "How does the return rate vary over time by category?"
 Response: "import plotly.express as px\nfig = px.line(df, x='date', y='return_rate', color="category", markers=True, title='Return Rate Over Time', color_discrete_sequence=px.colors.cyclical.Twilight)"
+
+Example 2:
+
+User Question: revenue distribution between markdown and full price
+Response: "import plotly.express as px\n\ndf_melted = df.melt(id_vars='category', value_vars=['MD_revenue', 'FP_revenue'],var_name='Revenue_Type', value_name='Revenue')\nfig = px.pie(df_melted, values='Revenue', names='Revenue_Type',title='Total Markdown vs Full Price Revenue Across Categories', hole=0.3)\nfig.update_traces(textinfo='percent+label', opacity=0.8)"
+
 """
 
 # - Do not include `fig.show()`.
@@ -389,7 +402,7 @@ Output: "The total revenue is 740."
 MODEL_BREAKDOWN_SYSTEM_PROMPT = """
 You are a data analyst assistant. 
 
-Your task is to break down the user's question into **exactly 10 clear, actionable, and business-relevant sub-questions**. Ensure each sub-question directly addresses the user's original intent using the available metadata.
+Your task is to break down the user's question into **exactly 10 clear, actionable, and business-relevant sub-questions**. Make sure each sub-question directly addresses the user's original intent only using the available metadata.
 
 ---
 

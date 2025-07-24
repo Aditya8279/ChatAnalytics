@@ -2,6 +2,7 @@ from django.shortcuts import render
 from .llm_pipeline import anomalies_agent, data_identifier_agent, table_schema_agent, generate_greet_output, classification_agent, break_into_subquestions, generate_python_code, generate_plot_code, generate_summary, generate_final_summary,generate_title, generate_description
 import pandas as pd
 from pandas.api.types import is_period_dtype
+from pandas import Timestamp
 import numpy as np
 import requests
 import time
@@ -16,9 +17,6 @@ import re
 import logging
 
 import logging
-
-import pandas as pd
-from pandas import Timestamp
 
 import io
 from PIL import Image
@@ -259,12 +257,13 @@ def inject_plot_formatting(code: str, height: int = 300) -> str:
                     f"fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True, height={height}, "
                     f"plot_bgcolor='white', paper_bgcolor='white', "
                     f"xaxis=dict(showgrid=False, showticklabels=False), "
-                    f"yaxis=dict(showgrid=True, showticklabels=True, gridcolor='lightgrey', tickformat='.2~s'))"
+                    f"yaxis=dict(showgrid=True, showticklabels=True, gridcolor='lightgrey'))"
                 )
                 modified_lines.append(
                     'plot_html = fig.to_html(full_html=False, include_plotlyjs=False, '
                     'config={"displayModeBar": False, "responsive": True})'
                 )
+                # , tickformat='.1s'
         elif not fig_started:
             modified_lines.append(line)
         elif fig_complete:
@@ -483,8 +482,13 @@ def upload_csv(request):
         if csv_file:
             # Read and store CSV in session
             df = pd.read_csv(csv_file, dtype=str, low_memory=False)
+
+            # Strip spaces from column names
+            df.columns = df.columns.str.strip()
+
             # Drop columns with > 50% missing values
             df = df.loc[:, df.isnull().mean() <= 0.5]
+            
             df = df.dropna()  # drop rows with NaNs
 
             # # Step 2: Fill remaining missing values
@@ -573,7 +577,7 @@ def process_sub_question(i, sub_q, metadata, df, summaries, plot_paths, q_title,
 
             logging.info(f"=== Input | Data Filter Step for (Q{i+1}) ===\n\n")
 
-            code_response = generate_python_code(retry_prompt_2)
+            code_response = generate_python_code(retry_prompt_2, 0.4, "gpt-4-turbo")
 
             logging.info(f"=== Output | Data Filter Step for (Q{i+1}) ===\n\n{code_response}")
 
@@ -581,11 +585,13 @@ def process_sub_question(i, sub_q, metadata, df, summaries, plot_paths, q_title,
             code_response = extract_json_from_response(code_response)
             python_code = fix_llm_code(code_response)
                         
-            local_vars = {"df": df.copy()}
+            local_vars = {"df": df.copy(), "pd":pd}
             exec(python_code, {}, local_vars)
             result = local_vars.get("result")
 
             result = safe_reset_index(result)
+            # Strip spaces from column names
+            result.columns = result.columns.str.strip()
 
             # filtered_data[i] = result
             if result is not None:
@@ -603,7 +609,7 @@ def process_sub_question(i, sub_q, metadata, df, summaries, plot_paths, q_title,
 
         result_head = result.head(14)
 
-        local_vars = {"df": result.copy()}
+        local_vars = {"df": result.copy(), "pd":pd, "px":px}
         summary_prompt = f"User Query: {sub_q}\n\nDataset: \n{result_head.to_markdown(index=False)}"
         
     else:
@@ -646,7 +652,7 @@ def process_sub_question(i, sub_q, metadata, df, summaries, plot_paths, q_title,
             # viz_prompt = f"""Dataset:\n{result.to_markdown(index=False)}"""
             logging.info(f"=== MODEL 3 Dashboard input (Q{i+1}, Attempt {attempt+1}) ===\n{retry_summary_prompt}\n\n")
             if isinstance(result, pd.DataFrame) and result.shape[0] > 1 and result.shape[1] > 1 or isinstance(result, pd.Series) and result.shape[0] > 1:
-                viz_code_response = generate_plot_code(retry_summary_prompt)
+                viz_code_response = generate_plot_code(retry_summary_prompt, 0.8, "gpt-4-turbo")
                 logging.info(f"=== MODEL 3 Dashboard Plot Code (Q{i+1}, Attempt {attempt+1}) ===\n{viz_code_response}\n\n")
                 viz_code_response = extract_json_from_response(viz_code_response)
                 viz_code_response = inject_plot_formatting(viz_code_response, height=280)
@@ -1041,8 +1047,13 @@ def chatbot_view(request):
                         exec(python_code, {}, local_vars)
                         result = local_vars.get("result")
 
-                        if result is not None:
-                            break
+                        # Check if result is None, empty string, or empty data (like empty list/dict)
+                        if result is None or result == "" or (hasattr(result, '__len__') and len(result) == 0):
+                            # result is empty or None, so continue the loop (run again)
+                            continue
+
+                        # if result is not None:
+                        break
                     except Exception as e:
                         last_model2_error = python_code + str(e)
 

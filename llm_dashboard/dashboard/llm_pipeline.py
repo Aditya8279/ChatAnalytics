@@ -25,11 +25,11 @@ def break_into_subquestions(user_query):
     # Call your LLM (e.g., GPT) and return list of 6 sub-questions
     return sub_questions
 
-def generate_python_code(updated_user_prompt):
-    return query_llm(updated_user_prompt, MODEL_DATA_PROCESSING_SYSTEM_PROMPT)
+def generate_python_code(updated_user_prompt, temp_value = 0.8, model_name = "gpt-3.5-turbo"):
+    return query_llm(updated_user_prompt, MODEL_DATA_PROCESSING_SYSTEM_PROMPT, temp_value, model_name)
     # return f"""filtered_df = df.head(10)  # dummy logic"""
 
-def generate_plot_code(updated_user_prompt):
+def generate_plot_code(updated_user_prompt, temp_value = 0.8, model_name = "gpt-3.5-turbo"):
     return query_llm(updated_user_prompt, MODEL_VIZ_SYSTEM_PROMPT)
 
 def generate_title(updated_user_prompt):
